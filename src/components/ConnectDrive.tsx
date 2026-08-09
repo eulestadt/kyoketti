@@ -1,6 +1,7 @@
-import { HardDrive, Loader2, Moon, NotebookPen, Sun } from 'lucide-react'
+import { HardDrive, Loader2, Moon, Sun } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
+import { KyokettiLogo } from './KyokettiLogo'
 import './ConnectDrive.css'
 
 export function ConnectDrive() {
@@ -21,7 +22,7 @@ export function ConnectDrive() {
       </button>
       <main className="connect-panel">
         <div className="connect-brand">
-          <NotebookPen className="connect-logo" strokeWidth={1.5} />
+          <KyokettiLogo className="connect-logo" />
           <h1>Kyoketti</h1>
         </div>
         <p className="connect-tagline">

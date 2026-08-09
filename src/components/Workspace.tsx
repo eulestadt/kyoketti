@@ -21,6 +21,7 @@ import { GraphView } from './graph/GraphView'
 import { MarkdownEditor } from './editor/MarkdownEditor'
 import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
+import { displayNoteName } from '../lib/noteNames'
 import './Workspace.css'
 
 export function Workspace() {
@@ -142,7 +143,7 @@ export function Workspace() {
                   >
                     <span>
                       {tab.dirty ? '• ' : ''}
-                      {tab.name}
+                      {displayNoteName(tab.name)}
                     </span>
                     <button
                       className="tab-close"

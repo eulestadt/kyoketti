@@ -56,8 +56,8 @@
 }
 
 .connect-logo {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   color: var(--accent);
   filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 35%, transparent));
   animation: pulse 3.5s ease-in-out infinite;

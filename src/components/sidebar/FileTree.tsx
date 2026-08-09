@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
+import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
 import type { VaultNode } from '../../types'
 import './FileTree.css'
 
@@ -50,13 +51,16 @@ export function FileTree() {
   }
 
   async function onRename(node: VaultNode) {
-    const name = window.prompt('Rename', node.name)
-    if (!name || name === node.name) return
-    await renameNode(node.id, name)
+    const name = window.prompt('Rename', node.isFolder ? node.name : displayNoteName(node.name))
+    if (!name) return
+    const nextName = node.isFolder ? name.trim() : ensureMarkdownFileName(name, node.name)
+    if (!nextName || nextName === node.name) return
+    await renameNode(node.id, nextName)
   }
 
   async function onDelete(node: VaultNode) {
-    if (!window.confirm(`Move “${node.name}” to Drive trash?`)) return
+    const label = node.isFolder ? node.name : displayNoteName(node.name)
+    if (!window.confirm(`Move “${label}” to Drive trash?`)) return
     await deleteNode(node.id)
   }
 
@@ -104,7 +108,7 @@ export function FileTree() {
           <button className="tree-main" onClick={() => void openFile(node.id)}>
             <span className="tree-spacer" />
             <FileText size={14} />
-            <span>{node.name}</span>
+            <span>{displayNoteName(node.name)}</span>
           </button>
           <div className="tree-actions">
             <button title="More" onClick={() => setMenuId(menuId === node.id ? null : node.id)}>
