@@ -1,3 +1,5 @@
+import TurndownService from 'turndown'
+
 export type ParsedNote = {
   frontmatter: Record<string, unknown>
   body: string
@@ -144,7 +146,14 @@ export function renderMarkdownToHtml(
     .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
     .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
-    .replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/(?:^>\s+.+(?:\n|$))+/gm, (block) => {
+      const lines = block
+        .trim()
+        .split(/\n/)
+        .map((line) => line.replace(/^>\s?/, '').trim())
+        .filter(Boolean)
+      return `<blockquote>${lines.map((line) => `<p>${line}</p>`).join('')}</blockquote>\n`
+    })
     .replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>')
     .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ordered">$1</li>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -187,112 +196,98 @@ export function renderMarkdownToHtml(
   return text
 }
 
-function serializeInline(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return node.textContent ?? ''
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+function createTurndown(): TurndownService {
+  const td = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    bulletListMarker: '-',
+    emDelimiter: '*',
+    strongDelimiter: '**',
+  })
 
-  const el = node as HTMLElement
-  const tag = el.tagName.toLowerCase()
-  const children = () => Array.from(el.childNodes).map(serializeInline).join('')
+  td.addRule('strikethrough', {
+    filter: (node) => {
+      const name = node.nodeName.toLowerCase()
+      return name === 'del' || name === 's' || name === 'strike'
+    },
+    replacement: (content) => `~~${content}~~`,
+  })
 
-  if (tag === 'br') return '  \n'
-  if (tag === 'strong' || tag === 'b') return `**${children()}**`
-  if (tag === 'em' || tag === 'i') return `*${children()}*`
-  if (tag === 'del' || tag === 's') return `~~${children()}~~`
-  if (tag === 'code') return `\`${el.textContent ?? ''}\``
-  if (tag === 'a') {
-    const note = el.dataset.note
-    if (note || el.classList.contains('internal-link')) {
-      const target = note ?? (el.textContent ?? '').trim()
+  td.addRule('boldSpan', {
+    filter: (node) => {
+      if (node.nodeName !== 'SPAN') return false
+      const el = node as HTMLElement
+      const weight = el.style.fontWeight || ''
+      return weight === 'bold' || weight === '700' || Number(weight) >= 600
+    },
+    replacement: (content) => `**${content}**`,
+  })
+
+  td.addRule('italicSpan', {
+    filter: (node) => {
+      if (node.nodeName !== 'SPAN') return false
+      const el = node as HTMLElement
+      return el.style.fontStyle === 'italic'
+    },
+    replacement: (content) => `*${content}*`,
+  })
+
+  td.addRule('strikeSpan', {
+    filter: (node) => {
+      if (node.nodeName !== 'SPAN') return false
+      const el = node as HTMLElement
+      return el.style.textDecoration.includes('line-through')
+    },
+    replacement: (content) => `~~${content}~~`,
+  })
+
+  td.addRule('internalLink', {
+    filter: (node) =>
+      node.nodeName === 'A' && (node as HTMLElement).classList.contains('internal-link'),
+    replacement: (_content, node) => {
+      const el = node as HTMLElement
+      const target = (el.getAttribute('data-note') ?? el.textContent ?? '').trim()
       const display = (el.textContent ?? '').trim()
       if (display && display !== target) return `[[${target}|${display}]]`
       return `[[${target}]]`
-    }
-    if (el.classList.contains('tag')) {
-      const text = (el.textContent ?? '').trim()
+    },
+  })
+
+  td.addRule('tagLink', {
+    filter: (node) => node.nodeName === 'A' && (node as HTMLElement).classList.contains('tag'),
+    replacement: (_content, node) => {
+      const text = ((node as HTMLElement).textContent ?? '').trim()
       return text.startsWith('#') ? text : `#${text}`
-    }
-    const href = el.getAttribute('href') ?? ''
-    const label = children()
-    if (!href || href === '#') return label
-    return `[${label}](${href})`
-  }
-  if (tag === 'img') {
-    const alt = el.getAttribute('alt') ?? ''
-    const src = el.getAttribute('src') ?? ''
-    return `![${alt}](${src})`
-  }
-  return children()
+    },
+  })
+
+  td.addRule('embed', {
+    filter: (node) =>
+      node.nodeName === 'DIV' && (node as HTMLElement).classList.contains('cm-embed'),
+    replacement: (_content, node) => {
+      const el = node as HTMLElement
+      const link = el.querySelector?.('a.internal-link') as HTMLAnchorElement | null
+      const note =
+        link?.getAttribute('data-note') ??
+        (link?.textContent ?? '').replace(/^!/, '').trim()
+      return note ? `![[${note}]]` : ''
+    },
+  })
+
+  return td
 }
 
-function serializeBlock(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = (node.textContent ?? '').trim()
-    return text
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return ''
-
-  const el = node as HTMLElement
-  const tag = el.tagName.toLowerCase()
-  const inline = () => Array.from(el.childNodes).map(serializeInline).join('')
-
-  if (tag === 'h1') return `# ${inline()}`
-  if (tag === 'h2') return `## ${inline()}`
-  if (tag === 'h3') return `### ${inline()}`
-  if (tag === 'h4') return `#### ${inline()}`
-  if (tag === 'h5') return `##### ${inline()}`
-  if (tag === 'h6') return `###### ${inline()}`
-  if (tag === 'p') return inline()
-  if (tag === 'blockquote') {
-    const body = Array.from(el.childNodes)
-      .map((child) => serializeBlock(child))
-      .filter(Boolean)
-      .join('\n')
-      .split('\n')
-      .map((line) => `> ${line}`)
-      .join('\n')
-    return body || `> ${inline()}`
-  }
-  if (tag === 'ul') {
-    return Array.from(el.children)
-      .filter((child) => child.tagName.toLowerCase() === 'li')
-      .map((li) => `- ${Array.from(li.childNodes).map(serializeInline).join('').trim()}`)
-      .join('\n')
-  }
-  if (tag === 'ol') {
-    return Array.from(el.children)
-      .filter((child) => child.tagName.toLowerCase() === 'li')
-      .map((li, index) => `${index + 1}. ${Array.from(li.childNodes).map(serializeInline).join('').trim()}`)
-      .join('\n')
-  }
-  if (tag === 'pre') {
-    const code = el.querySelector('code')
-    const lang = [...(code?.classList ?? [])].find((c) => c.startsWith('language-'))?.replace('language-', '') ?? ''
-    const text = code?.textContent ?? el.textContent ?? ''
-    return `\`\`\`${lang}\n${text.replace(/\n$/, '')}\n\`\`\``
-  }
-  if (tag === 'hr') return '---'
-  if (tag === 'div' && el.classList.contains('cm-embed')) {
-    const link = el.querySelector('a.internal-link') as HTMLAnchorElement | null
-    const note = link?.dataset.note ?? (link?.textContent ?? '').replace(/^!/, '').trim()
-    return note ? `![[${note}]]` : ''
-  }
-  if (tag === 'div' || tag === 'span') {
-    return Array.from(el.childNodes).map(serializeBlock).filter(Boolean).join('\n\n')
-  }
-  return inline()
-}
+const turndown = typeof document !== 'undefined' ? createTurndown() : null
 
 /** Convert preview/WYSIWYG HTML back to markdown body (no frontmatter). */
 export function htmlToMarkdown(html: string): string {
-  const template = document.createElement('template')
-  template.innerHTML = html.trim()
-  const blocks = Array.from(template.content.childNodes)
-    .map((node) => serializeBlock(node).trim())
-    .filter(Boolean)
-  return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n')
+  const service = turndown ?? createTurndown()
+  return service
+    .turndown(html)
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export function withPreservedFrontmatter(raw: string, nextBody: string): string {
