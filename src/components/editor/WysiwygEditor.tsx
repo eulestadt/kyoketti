@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Bold,
+  ChevronDown,
+  ChevronUp,
   Heading1,
   Heading2,
   Italic,
@@ -11,6 +13,18 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
+
+const TOOLBAR_KEY = 'kyoketti.wysiwygToolbar'
+
+function loadToolbarVisible(): boolean {
+  try {
+    const raw = localStorage.getItem(TOOLBAR_KEY)
+    if (raw === null) return true
+    return raw !== '0'
+  } catch {
+    return true
+  }
+}
 
 function runFormat(command: string, value?: string) {
   const next = command === 'formatBlock' && value && !value.startsWith('<') ? `<${value}>` : value
@@ -178,6 +192,19 @@ export function WysiwygEditor() {
   const lastFileId = useRef<string | null>(null)
   const lastSerialized = useRef(editorContent)
   const applyingExternal = useRef(false)
+  const [toolbarVisible, setToolbarVisible] = useState(loadToolbarVisible)
+
+  function toggleToolbar() {
+    setToolbarVisible((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(TOOLBAR_KEY, next ? '1' : '0')
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     const el = surfaceRef.current
@@ -337,33 +364,60 @@ export function WysiwygEditor() {
   }
 
   return (
-    <div className="wysiwyg-editor">
-      <div className="wysiwyg-toolbar" role="toolbar" aria-label="Formatting">
-        <button type="button" title="Heading 1 (Ctrl/Cmd+Alt+1)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
-          <Heading1 size={15} />
-        </button>
-        <button type="button" title="Heading 2 (Ctrl/Cmd+Alt+2)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
-          <Heading2 size={15} />
-        </button>
-        <button type="button" title="Bold (Ctrl/Cmd+B)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
-          <Bold size={15} />
-        </button>
-        <button type="button" title="Italic (Ctrl/Cmd+I)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
-          <Italic size={15} />
-        </button>
-        <button type="button" title="Strikethrough (Ctrl/Cmd+Shift+X)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
-          <Strikethrough size={15} />
-        </button>
-        <button type="button" title="Bullet list (Ctrl/Cmd+Shift+8)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
-          <List size={15} />
-        </button>
-        <button type="button" title="Numbered list (Ctrl/Cmd+Shift+7)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
-          <ListOrdered size={15} />
-        </button>
-        <button type="button" title="Quote (Ctrl/Cmd+Shift+.)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
-          <Quote size={15} />
-        </button>
-      </div>
+    <div className={`wysiwyg-editor ${toolbarVisible ? '' : 'toolbar-hidden'}`}>
+      {toolbarVisible ? (
+        <div className="wysiwyg-toolbar" role="toolbar" aria-label="Formatting">
+          <button type="button" title="Heading 1 (Ctrl/Cmd+Alt+1)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
+            <Heading1 size={15} />
+          </button>
+          <button type="button" title="Heading 2 (Ctrl/Cmd+Alt+2)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
+            <Heading2 size={15} />
+          </button>
+          <button type="button" title="Bold (Ctrl/Cmd+B)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
+            <Bold size={15} />
+          </button>
+          <button type="button" title="Italic (Ctrl/Cmd+I)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
+            <Italic size={15} />
+          </button>
+          <button type="button" title="Strikethrough (Ctrl/Cmd+Shift+X)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
+            <Strikethrough size={15} />
+          </button>
+          <button type="button" title="Bullet list (Ctrl/Cmd+Shift+8)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
+            <List size={15} />
+          </button>
+          <button type="button" title="Numbered list (Ctrl/Cmd+Shift+7)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
+            <ListOrdered size={15} />
+          </button>
+          <button type="button" title="Quote (Ctrl/Cmd+Shift+.)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
+            <Quote size={15} />
+          </button>
+          <span className="wysiwyg-toolbar-spacer" />
+          <button
+            type="button"
+            className="wysiwyg-toolbar-toggle"
+            title="Hide formatting toolbar"
+            aria-label="Hide formatting toolbar"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleToolbar}
+          >
+            <ChevronUp size={15} />
+          </button>
+        </div>
+      ) : (
+        <div className="wysiwyg-toolbar-collapsed">
+          <button
+            type="button"
+            className="wysiwyg-toolbar-toggle"
+            title="Show formatting toolbar"
+            aria-label="Show formatting toolbar"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={toggleToolbar}
+          >
+            <ChevronDown size={15} />
+            <span>Format</span>
+          </button>
+        </div>
+      )}
       <div
         ref={surfaceRef}
         className="wysiwyg-surface markdown-preview"

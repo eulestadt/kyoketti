@@ -47,13 +47,28 @@
 .wysiwyg-toolbar {
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   gap: 0.15rem;
   padding: 0.35rem 0.55rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
 
-.wysiwyg-toolbar button {
+.wysiwyg-toolbar-spacer {
+  flex: 1;
+}
+
+.wysiwyg-toolbar-collapsed {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  padding: 0.2rem 0.45rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.wysiwyg-toolbar button,
+.wysiwyg-toolbar-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -66,9 +81,21 @@
   cursor: pointer;
 }
 
-.wysiwyg-toolbar button:hover {
+.wysiwyg-toolbar-collapsed .wysiwyg-toolbar-toggle {
+  width: auto;
+  gap: 0.3rem;
+  padding: 0 0.45rem;
+  font-size: 0.75rem;
+}
+
+.wysiwyg-toolbar button:hover,
+.wysiwyg-toolbar-toggle:hover {
   background: var(--bg-hover);
   color: var(--text);
+}
+
+.workspace.pure-mode .wysiwyg-toolbar-collapsed {
+  display: none;
 }
 
 .wysiwyg-surface {
