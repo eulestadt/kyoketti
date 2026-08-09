@@ -1,0 +1,229 @@
+.workspace {
+  height: 100vh;
+  display: grid;
+  grid-template-columns: 48px 260px minmax(0, 1fr) auto;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.workspace.graph-mode {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+}
+
+.ribbon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.3rem;
+  background: #15141a;
+  border-right: 1px solid var(--border);
+}
+
+.ribbon button,
+.left-header button,
+.view-modes button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.ribbon button.active,
+.view-modes button.active,
+.ribbon button:hover,
+.view-modes button:hover,
+.left-header button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.ribbon-spacer {
+  flex: 1;
+}
+
+.left-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.left-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.left-header strong {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.left-header span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.main-stage {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: #18171e;
+  min-height: 38px;
+}
+
+.tabs {
+  display: flex;
+  overflow: auto;
+  flex: 1;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem 0.45rem 0.8rem;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.tab.active {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.tab-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.view-modes {
+  display: flex;
+  gap: 0.15rem;
+  padding: 0 0.4rem;
+}
+
+.editor-stage {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.25rem 0.75rem;
+  border-top: 1px solid var(--border);
+  background: #15141a;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.save-pill {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.save-pill.unsaved { color: #e3b341; }
+.save-pill.saving { color: var(--accent-2); }
+.save-pill.saved { color: #3fb950; }
+.save-pill.error { color: #ff7b72; }
+
+.settings-modal {
+  width: min(420px, calc(100vw - 2rem));
+  margin-top: 18vh;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.settings-modal h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+}
+
+.settings-actions {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.settings-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.7rem;
+  cursor: pointer;
+}
+
+.settings-actions button.danger {
+  color: #ff7b72;
+}
+
+.settings-hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}
+
+.toast-error {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  max-width: min(420px, calc(100vw - 2rem));
+  background: #3a1d1d;
+  border: 1px solid #ff7b72;
+  color: #ffc1bc;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  z-index: 120;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 800px) {
+  .workspace {
+    grid-template-columns: 48px 1fr;
+  }
+  .left-sidebar {
+    display: none;
+  }
+}

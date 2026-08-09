@@ -1,0 +1,27 @@
+.graph-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #15141a;
+}
+
+.graph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.graph-toolbar strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.graph-view canvas {
+  flex: 1;
+  width: 100%;
+  cursor: pointer;
+}

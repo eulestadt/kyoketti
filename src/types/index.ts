@@ -1,0 +1,55 @@
+export type DriveFile = {
+  id: string
+  name: string
+  mimeType: string
+  parents?: string[]
+  modifiedTime?: string
+  size?: string
+}
+
+export type VaultNode = {
+  id: string
+  name: string
+  path: string
+  mimeType: string
+  isFolder: boolean
+  children?: VaultNode[]
+  parentId?: string
+}
+
+export type NoteMeta = {
+  id: string
+  name: string
+  path: string
+  title: string
+  content: string
+  frontmatter: Record<string, unknown>
+  tags: string[]
+  links: string[]
+  modifiedTime?: string
+}
+
+export type OpenTab = {
+  id: string
+  path: string
+  name: string
+  dirty: boolean
+}
+
+export type ViewMode = 'source' | 'live' | 'reading'
+export type RightPanel = 'backlinks' | 'outline' | 'tags' | null
+export type LeftPanel = 'files' | 'search' | 'graph'
+
+export type AuthSession = {
+  accessToken: string
+  expiresAt: number
+  email?: string
+  name?: string
+  picture?: string
+}
+
+export type VaultConfig = {
+  folderId: string
+  folderName: string
+  folderPath?: string
+}
