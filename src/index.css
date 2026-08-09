@@ -127,6 +127,14 @@ input:focus-visible {
   background: transparent;
 }
 
+.boot-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;

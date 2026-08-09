@@ -223,10 +223,13 @@ export function Workspace() {
                   setSettingsOpen(false)
                 }}
               >
-                Disconnect Google Drive
+                Sign out
               </button>
             </div>
-            <p className="settings-hint">Shortcuts: Ctrl/Cmd+O quick switch · Ctrl/Cmd+N new note · autosave on edit</p>
+            <p className="settings-hint">
+              Sign out ends this device session. Your vault folder stays linked to your Google account for the next
+              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · autosave
+            </p>
           </div>
         </div>
       )}

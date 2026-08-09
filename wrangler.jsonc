@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "kyoketti",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-08-08",
   "compatibility_flags": ["global_fetch_strictly_public"],
   "workers_dev": true,
@@ -12,6 +13,16 @@
   ],
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kyoketti",
+      "database_id": "507d6636-40ff-4f70-86d0-119d759ea33c",
+      "migrations_dir": "migrations"
+    }
+  ]
 }

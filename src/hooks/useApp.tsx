@@ -10,8 +10,6 @@ import {
 } from 'react'
 import {
   clearSession,
-  connectGoogleDrive,
-  disconnectGoogleDrive,
   loadSession,
 } from '../lib/googleAuth'
 import {
@@ -23,6 +21,14 @@ import {
   trashFile,
   updateTextFile,
 } from '../lib/googleDrive'
+import {
+  clearVaultServer,
+  fetchDriveToken,
+  fetchMe,
+  logoutServer,
+  saveVaultServer,
+  startGoogleLogin,
+} from '../lib/serverAuth'
 import {
   demoCreateFolder,
   demoCreateNote,
@@ -57,6 +63,7 @@ import type {
 const VAULT_KEY = 'kyoketti.vault'
 
 type AppState = {
+  bootstrapping: boolean
   session: AuthSession | null
   demo: boolean
   connecting: boolean
@@ -109,6 +116,7 @@ function loadVaultConfig(): VaultConfig | null {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const [bootstrapping, setBootstrapping] = useState(true)
   const [demo, setDemo] = useState(() => isDemoMode())
   const [session, setSession] = useState<AuthSession | null>(() => {
     if (isDemoMode()) {
@@ -122,7 +130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return loadSession()
   })
   const [connecting, setConnecting] = useState(false)
-  const [vault, setVaultState] = useState<VaultConfig | null>(() => loadVaultConfig())
+  const [vault, setVaultState] = useState<VaultConfig | null>(() => (isDemoMode() ? loadVaultConfig() : null))
   const [tree, setTree] = useState<VaultNode | null>(null)
   const [index, setIndex] = useState<VaultIndex>(() => createEmptyIndex())
   const [loadingVault, setLoadingVault] = useState(false)
@@ -155,20 +163,93 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sessionRef.current = session
   }, [session])
 
+  const ensureDriveToken = useCallback(async (): Promise<string> => {
+    if (demoRef.current) return 'demo'
+    const current = sessionRef.current
+    if (current?.accessToken && current.expiresAt > Date.now() + 60_000) {
+      return current.accessToken
+    }
+    const tokens = await fetchDriveToken()
+    const next: AuthSession = {
+      accessToken: tokens.accessToken,
+      expiresAt: Date.now() + tokens.expiresIn * 1000,
+      email: current?.email,
+      name: current?.name,
+      picture: current?.picture,
+    }
+    setSession(next)
+    sessionRef.current = next
+    return next.accessToken
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function bootstrap() {
+      const params = new URLSearchParams(window.location.search)
+      const authError = params.get('authError')
+      if (authError) {
+        setError(decodeURIComponent(authError))
+        params.delete('authError')
+        const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`
+        window.history.replaceState({}, '', next)
+      }
+
+      if (isDemoMode()) {
+        setBootstrapping(false)
+        return
+      }
+
+      try {
+        const me = await fetchMe()
+        if (cancelled) return
+        if (!me.user) {
+          clearSession()
+          setSession(null)
+          setVaultState(null)
+          setBootstrapping(false)
+          return
+        }
+
+        setDemo(false)
+        disableDemoMode()
+        const tokens = await fetchDriveToken()
+        if (cancelled) return
+        setSession({
+          accessToken: tokens.accessToken,
+          expiresAt: Date.now() + tokens.expiresIn * 1000,
+          email: me.user.email ?? undefined,
+          name: me.user.name ?? undefined,
+          picture: me.user.picture ?? undefined,
+        })
+        if (me.vault) {
+          localStorage.setItem(VAULT_KEY, JSON.stringify(me.vault))
+          setVaultState({ folderId: me.vault.folderId, folderName: me.vault.folderName })
+          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'Google user'}`)
+        } else {
+          localStorage.removeItem(VAULT_KEY)
+          setVaultState(null)
+          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'Google user'}`)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to restore session')
+        }
+      } finally {
+        if (!cancelled) setBootstrapping(false)
+      }
+    }
+    void bootstrap()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const connect = useCallback(async () => {
     setConnecting(true)
     setError(null)
-    try {
-      disableDemoMode()
-      setDemo(false)
-      const next = await connectGoogleDrive()
-      setSession(next)
-      setStatusMessage(`Connected as ${next.email ?? 'Google user'}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect Google Drive')
-    } finally {
-      setConnecting(false)
-    }
+    disableDemoMode()
+    setDemo(false)
+    startGoogleLogin(false)
   }, [])
 
   const startDemo = useCallback(() => {
@@ -187,20 +268,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const disconnect = useCallback(() => {
-    if (!demo) disconnectGoogleDrive(session)
-    disableDemoMode()
-    clearSession()
-    localStorage.removeItem(VAULT_KEY)
-    setDemo(false)
-    setSession(null)
-    setVaultState(null)
-    setTree(null)
-    setIndex(createEmptyIndex())
-    setTabs([])
-    setActiveFileId(null)
-    setEditorContentState('')
-    setStatusMessage('Disconnected')
-  }, [session, demo])
+    void (async () => {
+      if (!demo) {
+        try {
+          await logoutServer()
+        } catch {
+          /* ignore */
+        }
+      }
+      disableDemoMode()
+      clearSession()
+      localStorage.removeItem(VAULT_KEY)
+      setDemo(false)
+      setSession(null)
+      setVaultState(null)
+      setTree(null)
+      setIndex(createEmptyIndex())
+      setTabs([])
+      setActiveFileId(null)
+      setEditorContentState('')
+      setStatusMessage('Signed out')
+    })()
+  }, [demo])
 
   const refreshVault = useCallback(async () => {
     if (!vault) return
@@ -209,9 +298,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null)
     setStatusMessage('Indexing vault…')
     try {
+      const accessToken = demo ? 'demo' : await ensureDriveToken()
       const { root, files } = demo
         ? demoListVault()
-        : await listVaultTree(session!.accessToken, vault.folderId, vault.folderName)
+        : await listVaultTree(accessToken, vault.folderId, vault.folderName)
       setTree(root)
       const paths = buildPaths(files, vault.folderId)
       const mdFiles = markdownFiles(files)
@@ -224,9 +314,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (contentCache.current.has(file.id)) {
               return { file, content: contentCache.current.get(file.id)! }
             }
-            const content = demo
-              ? demoRead(file.id)
-              : await downloadTextFile(session!.accessToken, file.id)
+            const content = demo ? demoRead(file.id) : await downloadTextFile(accessToken, file.id)
             contentCache.current.set(file.id, content)
             return { file, content }
           }),
@@ -241,14 +329,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = err instanceof Error ? err.message : 'Failed to load vault'
       setError(message)
       setStatusMessage('Vault load failed')
-      if (!demo && (message.includes('401') || message.toLowerCase().includes('invalid credentials'))) {
+      if (!demo && message.toLowerCase().includes('unauthorized')) {
         clearSession()
         setSession(null)
       }
     } finally {
       setLoadingVault(false)
     }
-  }, [session, vault, demo])
+  }, [session, vault, demo, ensureDriveToken])
 
   const setVault = useCallback(async (next: VaultConfig) => {
     localStorage.setItem(VAULT_KEY, JSON.stringify(next))
@@ -257,6 +345,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveFileId(null)
     setEditorContentState('')
     contentCache.current.clear()
+    if (!demoRef.current) {
+      try {
+        await saveVaultServer(next.folderId, next.folderName)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to save vault preference')
+      }
+    }
   }, [])
 
   const clearVault = useCallback(() => {
@@ -268,11 +363,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveFileId(null)
     setEditorContentState('')
     contentCache.current.clear()
+    if (!demoRef.current) {
+      void clearVaultServer().catch(() => undefined)
+    }
   }, [])
 
   useEffect(() => {
+    if (bootstrapping) return
     if ((session || demo) && vault) void refreshVault()
-  }, [session, vault, demo, refreshVault])
+  }, [session, vault, demo, refreshVault, bootstrapping])
 
   const openFile = useCallback(
     async (fileId: string) => {
@@ -282,7 +381,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let content = contentCache.current.get(fileId)
         let note = index.notesById.get(fileId)
         if (content == null) {
-          content = demo ? demoRead(fileId) : await downloadTextFile(session!.accessToken, fileId)
+          const accessToken = demo ? 'demo' : await ensureDriveToken()
+          content = demo ? demoRead(fileId) : await downloadTextFile(accessToken, fileId)
           contentCache.current.set(fileId, content)
         }
         if (!note) {
@@ -309,7 +409,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : 'Failed to open file')
       }
     },
-    [session, demo, index.notesById, tree],
+    [session, demo, index.notesById, tree, ensureDriveToken],
   )
 
   const closeTab = useCallback(
@@ -338,7 +438,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSaveStatus('saving')
     try {
       if (demoRef.current) demoWrite(fileId, content)
-      else await updateTextFile(sessionRef.current!.accessToken, fileId, content)
+      else {
+        const accessToken = await ensureDriveToken()
+        await updateTextFile(accessToken, fileId, content)
+      }
       contentCache.current.set(fileId, content)
       const existing = index.notesById.get(fileId)
       const note = noteFromFile(
@@ -359,7 +462,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSaveStatus('error')
       setError(err instanceof Error ? err.message : 'Save failed')
     }
-  }, [index.notesById])
+  }, [index.notesById, ensureDriveToken])
 
   const setEditorContent = useCallback(
     (content: string) => {
@@ -379,38 +482,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const createNote = useCallback(
     async (parentId: string, name: string) => {
       const content = `# ${name.replace(/\.md$/i, '')}\n\n`
+      const accessToken = demo ? 'demo' : await ensureDriveToken()
       const file = demo
         ? demoCreateNote(parentId, name, content)
-        : await createMarkdownFile(session!.accessToken, parentId, name, content)
+        : await createMarkdownFile(accessToken, parentId, name, content)
       contentCache.current.set(file.id, content)
       await refreshVault()
       await openFile(file.id)
     },
-    [session, demo, refreshVault, openFile],
+    [demo, refreshVault, openFile, ensureDriveToken],
   )
 
   const createDirectory = useCallback(
     async (parentId: string, name: string) => {
       if (demo) demoCreateFolder(parentId, name)
-      else await createFolder(session!.accessToken, parentId, name)
+      else await createFolder(await ensureDriveToken(), parentId, name)
       await refreshVault()
     },
-    [session, demo, refreshVault],
+    [demo, refreshVault, ensureDriveToken],
   )
 
   const renameNode = useCallback(
     async (id: string, name: string) => {
       if (demo) demoRename(id, name)
-      else await renameFile(session!.accessToken, id, name)
+      else await renameFile(await ensureDriveToken(), id, name)
       await refreshVault()
     },
-    [session, demo, refreshVault],
+    [demo, refreshVault, ensureDriveToken],
   )
 
   const deleteNode = useCallback(
     async (id: string) => {
       if (demo) demoTrash(id)
-      else await trashFile(session!.accessToken, id)
+      else await trashFile(await ensureDriveToken(), id)
       contentCache.current.delete(id)
       setIndex((prev) => removeNote(prev, id))
       setTabs((prev) => prev.filter((t) => t.id !== id))
@@ -420,7 +524,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refreshVault()
     },
-    [session, demo, activeFileId, refreshVault],
+    [demo, activeFileId, refreshVault, ensureDriveToken],
   )
 
   const openNoteByTitle = useCallback(
@@ -435,6 +539,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
+      bootstrapping,
       session,
       demo,
       connecting,
@@ -472,6 +577,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setError,
     }),
     [
+      bootstrapping,
       session,
       demo,
       connecting,

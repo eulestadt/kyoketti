@@ -6,7 +6,15 @@ import { Workspace } from './components/Workspace'
 import './index.css'
 
 function Root() {
-  const { session, vault, demo } = useApp()
+  const { session, vault, demo, bootstrapping } = useApp()
+
+  if (bootstrapping) {
+    return (
+      <div className="boot-screen">
+        <p>Restoring your session…</p>
+      </div>
+    )
+  }
 
   if (!session && !demo) return <ConnectDrive />
   if (!vault) return <VaultPicker />

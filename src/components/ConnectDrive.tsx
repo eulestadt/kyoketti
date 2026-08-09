@@ -1,5 +1,4 @@
 import { HardDrive, Loader2, Moon, NotebookPen, Sun } from 'lucide-react'
-import { getGoogleClientId } from '../lib/googleAuth'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
 import './ConnectDrive.css'
@@ -7,7 +6,6 @@ import './ConnectDrive.css'
 export function ConnectDrive() {
   const { connect, connecting, error, startDemo } = useApp()
   const { theme, toggleTheme } = useTheme()
-  const clientIdConfigured = Boolean(getGoogleClientId() && !getGoogleClientId().includes('your-client-id'))
 
   return (
     <div className="connect-screen">
@@ -31,17 +29,14 @@ export function ConnectDrive() {
         </p>
         <button className="connect-cta" onClick={() => void connect()} disabled={connecting}>
           {connecting ? <Loader2 className="spin" size={18} /> : <HardDrive size={18} />}
-          {connecting ? 'Connecting…' : 'Link Google Drive'}
+          {connecting ? 'Redirecting…' : 'Sign in with Google'}
         </button>
         <button className="connect-demo" onClick={startDemo}>
           Try a local demo vault
         </button>
-        {!clientIdConfigured && (
-          <p className="connect-hint">
-            Add <code>VITE_GOOGLE_CLIENT_ID</code> (and optional <code>VITE_GOOGLE_API_KEY</code>) in{' '}
-            <code>.env</code>. Enable Drive API on your Google Cloud project and authorize this origin.
-          </p>
-        )}
+        <p className="connect-hint">
+          Sign in once. Your Google Drive vault stays linked across devices — no re-picking the folder.
+        </p>
         {error && <p className="connect-error">{error}</p>}
       </main>
     </div>

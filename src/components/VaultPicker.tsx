@@ -68,7 +68,7 @@ export function VaultPicker() {
             {theme === 'light' ? 'Dark' : 'Light'}
           </button>
           <button className="ghost-btn" onClick={disconnect}>
-            Disconnect
+            Sign out
           </button>
         </div>
       </header>
