@@ -1,4 +1,5 @@
 import { AppProvider, useApp } from './hooks/useApp'
+import { ThemeProvider } from './hooks/useTheme'
 import { ConnectDrive } from './components/ConnectDrive'
 import { VaultPicker } from './components/VaultPicker'
 import { Workspace } from './components/Workspace'
@@ -14,8 +15,10 @@ function Root() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <Root />
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <Root />
+      </AppProvider>
+    </ThemeProvider>
   )
 }

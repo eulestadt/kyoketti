@@ -4,11 +4,13 @@ import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
+import { useTheme } from '../../hooks/useTheme'
 import { renderMarkdownToHtml } from '../../lib/markdown'
 import './MarkdownEditor.css'
 
 export function MarkdownEditor() {
   const { editorContent, setEditorContent, viewMode, openNoteByTitle, index, activeFileId } = useApp()
+  const { theme } = useTheme()
 
   const previewHtml = useMemo(() => {
     return renderMarkdownToHtml(editorContent, (title) => {
@@ -16,6 +18,8 @@ export function MarkdownEditor() {
       return note ? `#note/${note.id}` : null
     })
   }, [editorContent, index.notesByTitle])
+
+  const editorTheme = theme === 'dark' ? oneDark : 'light'
 
   if (!activeFileId) {
     return (
@@ -48,7 +52,7 @@ export function MarkdownEditor() {
           <CodeMirror
             value={editorContent}
             height="100%"
-            theme={oneDark}
+            theme={editorTheme}
             extensions={[markdown({ base: markdownLanguage }), EditorView.lineWrapping]}
             onChange={(value) => setEditorContent(value)}
             basicSetup={{
@@ -72,7 +76,7 @@ export function MarkdownEditor() {
       <CodeMirror
         value={editorContent}
         height="100%"
-        theme={oneDark}
+        theme={editorTheme}
         extensions={[markdown({ base: markdownLanguage }), EditorView.lineWrapping]}
         onChange={(value) => setEditorContent(value)}
         basicSetup={{

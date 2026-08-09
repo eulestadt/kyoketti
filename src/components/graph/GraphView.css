@@ -2,7 +2,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #15141a;
+  background: var(--bg-graph);
 }
 
 .graph-toolbar {

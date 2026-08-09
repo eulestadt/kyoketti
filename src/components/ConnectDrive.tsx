@@ -1,15 +1,26 @@
-import { HardDrive, Loader2, NotebookPen } from 'lucide-react'
+import { HardDrive, Loader2, Moon, NotebookPen, Sun } from 'lucide-react'
 import { getGoogleClientId } from '../lib/googleAuth'
 import { useApp } from '../hooks/useApp'
+import { useTheme } from '../hooks/useTheme'
 import './ConnectDrive.css'
 
 export function ConnectDrive() {
   const { connect, connecting, error, startDemo } = useApp()
+  const { theme, toggleTheme } = useTheme()
   const clientIdConfigured = Boolean(getGoogleClientId() && !getGoogleClientId().includes('your-client-id'))
 
   return (
     <div className="connect-screen">
       <div className="connect-atmosphere" aria-hidden />
+      <button
+        className="theme-toggle connect-theme-toggle"
+        onClick={toggleTheme}
+        title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        aria-label="Toggle color theme"
+      >
+        {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+        {theme === 'light' ? 'Dark' : 'Light'}
+      </button>
       <main className="connect-panel">
         <div className="connect-brand">
           <NotebookPen className="connect-logo" strokeWidth={1.5} />

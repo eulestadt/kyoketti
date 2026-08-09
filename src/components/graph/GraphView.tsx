@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useApp } from '../../hooks/useApp'
+import { useTheme } from '../../hooks/useTheme'
 import { buildGraph } from '../../lib/vaultIndex'
 import './GraphView.css'
 
@@ -15,6 +16,7 @@ type SimNode = {
 
 export function GraphView() {
   const { index, openFile, activeFileId } = useApp()
+  const { theme } = useTheme()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const graph = useMemo(() => buildGraph(index), [index])
 
@@ -27,6 +29,13 @@ export function GraphView() {
     let frame = 0
     let running = true
     const dpr = window.devicePixelRatio || 1
+    const styles = getComputedStyle(document.documentElement)
+    const bg = styles.getPropertyValue('--bg-graph').trim() || (theme === 'light' ? '#f4f4f1' : '#15141a')
+    const accent = styles.getPropertyValue('--accent').trim() || '#5a8f6a'
+    const accentSoft = theme === 'light' ? 'rgba(90, 143, 106, 0.35)' : 'rgba(127, 109, 242, 0.35)'
+    const orphan = theme === 'light' ? '#9ca3af' : '#6b7280'
+    const label = styles.getPropertyValue('--text').trim() || (theme === 'light' ? '#222222' : '#dcddde')
+    const activeColor = theme === 'light' ? '#3f6f4d' : '#9b8cff'
 
     const resize = () => {
       const rect = canvas.parentElement?.getBoundingClientRect()
@@ -116,10 +125,10 @@ export function GraphView() {
       }
 
       ctx.clearRect(0, 0, w, h)
-      ctx.fillStyle = '#1a1920'
+      ctx.fillStyle = bg
       ctx.fillRect(0, 0, w, h)
 
-      ctx.strokeStyle = 'rgba(127, 109, 242, 0.35)'
+      ctx.strokeStyle = accentSoft
       ctx.lineWidth = 1
       for (const link of links) {
         ctx.beginPath()
@@ -132,10 +141,10 @@ export function GraphView() {
         const active = node.id === activeFileId
         ctx.beginPath()
         ctx.arc(node.x, node.y, active ? 7 : 5, 0, Math.PI * 2)
-        ctx.fillStyle = active ? '#9b8cff' : node.orphan ? '#6b7280' : '#7f6df2'
+        ctx.fillStyle = active ? activeColor : node.orphan ? orphan : accent
         ctx.fill()
-        ctx.fillStyle = 'rgba(220, 221, 222, 0.85)'
-        ctx.font = '11px Inter, system-ui, sans-serif'
+        ctx.fillStyle = label
+        ctx.font = '11px "Source Sans 3", system-ui, sans-serif'
         ctx.fillText(node.title, node.x + 10, node.y + 3)
       }
 
@@ -150,7 +159,7 @@ export function GraphView() {
       window.removeEventListener('resize', resize)
       canvas.removeEventListener('click', onClick)
     }
-  }, [graph, openFile, activeFileId])
+  }, [graph, openFile, activeFileId, theme])
 
   return (
     <div className="graph-view">

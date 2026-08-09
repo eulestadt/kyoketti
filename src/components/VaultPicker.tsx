@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
-import { FolderOpen, Loader2, Plus, Search } from 'lucide-react'
+import { FolderOpen, Loader2, Moon, Plus, Search, Sun } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
+import { useTheme } from '../hooks/useTheme'
 import { createFolder, searchFolders } from '../lib/googleDrive'
 import type { DriveFile } from '../types'
 import './VaultPicker.css'
 
 export function VaultPicker() {
   const { session, setVault, disconnect, error, setError } = useApp()
+  const { theme, toggleTheme } = useTheme()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<DriveFile[]>([])
   const [searching, setSearching] = useState(false)
@@ -56,9 +58,19 @@ export function VaultPicker() {
           <h1>Open a vault</h1>
           <p className="vault-sub">Choose a Google Drive folder to use as your markdown vault.</p>
         </div>
-        <button className="ghost-btn" onClick={disconnect}>
-          Disconnect
-        </button>
+        <div className="vault-header-actions">
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+            {theme === 'light' ? 'Dark' : 'Light'}
+          </button>
+          <button className="ghost-btn" onClick={disconnect}>
+            Disconnect
+          </button>
+        </div>
       </header>
 
       <section className="vault-create">

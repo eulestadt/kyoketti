@@ -138,5 +138,11 @@
 }
 
 .vault-error {
-  color: #ff7b72;
+  color: var(--danger);
+}
+
+.vault-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }

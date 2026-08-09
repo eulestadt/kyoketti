@@ -17,7 +17,7 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.55rem 0.3rem;
-  background: #15141a;
+  background: var(--bg-ribbon);
   border-right: 1px solid var(--border);
 }
 
@@ -91,7 +91,7 @@
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: #18171e;
+  background: var(--bg-tabs);
   min-height: 38px;
 }
 
@@ -137,6 +137,7 @@
 .editor-stage {
   min-height: 0;
   overflow: hidden;
+  background: var(--bg-elevated);
 }
 
 .status-bar {
@@ -146,7 +147,7 @@
   gap: 1rem;
   padding: 0.25rem 0.75rem;
   border-top: 1px solid var(--border);
-  background: #15141a;
+  background: var(--bg-status);
   color: var(--text-faint);
   font-size: 0.75rem;
 }
@@ -156,10 +157,20 @@
   letter-spacing: 0.04em;
 }
 
-.save-pill.unsaved { color: #e3b341; }
+.save-pill.unsaved { color: var(--warning); }
 .save-pill.saving { color: var(--accent-2); }
-.save-pill.saved { color: #3fb950; }
-.save-pill.error { color: #ff7b72; }
+.save-pill.saved { color: var(--success); }
+.save-pill.error { color: var(--danger); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  display: grid;
+  place-items: start center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
 
 .settings-modal {
   width: min(420px, calc(100vw - 2rem));
@@ -168,7 +179,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
 }
 
 .settings-modal h2 {
@@ -196,7 +207,7 @@
 }
 
 .settings-actions button.danger {
-  color: #ff7b72;
+  color: var(--danger);
 }
 
 .settings-hint {
@@ -210,9 +221,9 @@
   right: 1rem;
   bottom: 1rem;
   max-width: min(420px, calc(100vw - 2rem));
-  background: #3a1d1d;
-  border: 1px solid #ff7b72;
-  color: #ffc1bc;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
   padding: 0.75rem 0.9rem;
   border-radius: 8px;
   z-index: 120;

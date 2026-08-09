@@ -5,6 +5,7 @@
   text-align: center;
   color: var(--text-muted);
   padding: 2rem;
+  background: var(--bg-elevated);
 }
 
 .editor-empty h2 {
@@ -16,6 +17,7 @@
 .editor-pane {
   height: 100%;
   overflow: hidden;
+  background: var(--bg-elevated);
 }
 
 .editor-pane.full,
@@ -32,6 +34,7 @@
 .reading-view {
   height: 100%;
   overflow: auto;
+  background: var(--bg-elevated);
 }
 
 .preview-pane {
@@ -65,12 +68,12 @@
 .markdown-preview code {
   font-family: var(--font-mono);
   font-size: 0.9em;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--code-bg);
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
 .markdown-preview pre {
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--pre-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.9rem 1rem;
@@ -83,10 +86,10 @@
 .markdown-preview .internal-link {
   color: var(--accent);
   text-decoration: none;
-  border-bottom: 1px solid rgba(127, 109, 242, 0.35);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .markdown-preview .internal-link.is-unresolved {
-  color: #c97868;
+  color: var(--danger);
   border-bottom-style: dashed;
 }
 .markdown-preview .tag {
@@ -124,6 +127,21 @@
 
 .cm-editor .cm-content {
   padding: 1.1rem 1.2rem 3rem;
+}
+
+[data-theme='light'] .cm-editor {
+  color: var(--text);
+}
+
+[data-theme='light'] .cm-editor .cm-gutters {
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+[data-theme='light'] .cm-editor .cm-activeLine,
+[data-theme='light'] .cm-editor .cm-activeLineGutter {
+  background: var(--bg-hover);
 }
 
 @media (max-width: 900px) {

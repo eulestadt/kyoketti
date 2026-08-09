@@ -10,8 +10,11 @@ import {
   Code2,
   RefreshCw,
   FolderInput,
+  Moon,
+  Sun,
 } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
+import { useTheme } from '../hooks/useTheme'
 import { FileTree } from './sidebar/FileTree'
 import { GlobalSearch } from './search/GlobalSearch'
 import { GraphView } from './graph/GraphView'
@@ -44,6 +47,7 @@ export function Workspace() {
     error,
   } = useApp()
 
+  const { theme, toggleTheme } = useTheme()
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -92,6 +96,14 @@ export function Workspace() {
           <Network size={18} />
         </button>
         <div className="ribbon-spacer" />
+        <button
+          className="theme-toggle icon-only"
+          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          aria-label="Toggle color theme"
+          onClick={toggleTheme}
+        >
+          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+        </button>
         <button title="Toggle right sidebar" onClick={() => setRightPanel(rightPanel ? null : 'backlinks')}>
           <PanelRight size={18} />
         </button>
@@ -191,6 +203,10 @@ export function Workspace() {
               Connected vault: <strong>{vault?.folderName}</strong>
             </p>
             <div className="settings-actions">
+              <button onClick={toggleTheme}>
+                {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+                Use {theme === 'light' ? 'dark' : 'light'} mode
+              </button>
               <button
                 onClick={() => {
                   clearVault()
