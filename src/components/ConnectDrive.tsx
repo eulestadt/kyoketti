@@ -91,7 +91,7 @@ export function ConnectDrive() {
 
         {!localSupported && (
           <p className="connect-local-note">
-            Local folders need Chrome or Edge on desktop. Use Google, or try the demo vault below.
+            Local folders need Chrome or Edge on desktop.
           </p>
         )}
 
