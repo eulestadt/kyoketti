@@ -26,9 +26,13 @@ function ensureEditableTail(root: HTMLElement) {
   }
 }
 
-function wrapSelection(tagName: 'strong' | 'em' | 'del') {
+function wrapSelection(tagName: 'strong' | 'em' | 'del' | 'code') {
   const selection = window.getSelection()
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (tagName === 'code') {
+      document.execCommand('insertHTML', false, '<code>\u200b</code>')
+      return
+    }
     runFormat(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough')
     return
   }
@@ -42,7 +46,72 @@ function wrapSelection(tagName: 'strong' | 'em' | 'del') {
     next.collapse(false)
     selection.addRange(next)
   } catch {
+    if (tagName === 'code') {
+      const text = range.toString()
+      document.execCommand('insertHTML', false, `<code>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>`)
+      return
+    }
     runFormat(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough')
+  }
+}
+
+function isInListItem(node: Node | null): HTMLElement | null {
+  const el = node instanceof Element ? node : node?.parentElement
+  return el?.closest('li') ?? null
+}
+
+function insertPlainText(text: string) {
+  if (document.queryCommandSupported?.('insertText')) {
+    document.execCommand('insertText', false, text)
+    return
+  }
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  range.deleteContents()
+  const node = document.createTextNode(text)
+  range.insertNode(node)
+  range.setStartAfter(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function indentSelection() {
+  const selection = window.getSelection()
+  const li = isInListItem(selection?.anchorNode ?? null)
+  if (li) {
+    runFormat('indent')
+    return
+  }
+  insertPlainText('  ')
+}
+
+function outdentSelection() {
+  const selection = window.getSelection()
+  const li = isInListItem(selection?.anchorNode ?? null)
+  if (li) {
+    runFormat('outdent')
+    return
+  }
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return
+  const range = selection.getRangeAt(0)
+  const node = range.startContainer
+  if (node.nodeType !== Node.TEXT_NODE) return
+  const text = node.textContent ?? ''
+  const offset = range.startOffset
+  if (offset >= 2 && text.slice(offset - 2, offset) === '  ') {
+    const del = document.createRange()
+    del.setStart(node, offset - 2)
+    del.setEnd(node, offset)
+    del.deleteContents()
+    return
+  }
+  if (offset >= 1 && text.slice(offset - 1, offset) === '\t') {
+    const del = document.createRange()
+    del.setStart(node, offset - 1)
+    del.setEnd(node, offset)
+    del.deleteContents()
   }
 }
 
@@ -95,13 +164,14 @@ export function WysiwygEditor() {
     if (title) await openNoteByTitle(title)
   }
 
-  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'ul' | 'ol' | 'quote') {
+  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote') {
     surfaceRef.current?.focus()
     if (kind === 'h1') runFormat('formatBlock', 'h1')
     else if (kind === 'h2') runFormat('formatBlock', 'h2')
     else if (kind === 'bold') wrapSelection('strong')
     else if (kind === 'italic') wrapSelection('em')
     else if (kind === 'strike') wrapSelection('del')
+    else if (kind === 'code') wrapSelection('code')
     else if (kind === 'ul') runFormat('insertUnorderedList')
     else if (kind === 'ol') runFormat('insertOrderedList')
     else if (kind === 'quote') runFormat('formatBlock', 'blockquote')
@@ -109,6 +179,18 @@ export function WysiwygEditor() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const mod = e.metaKey || e.ctrlKey
+    const key = e.key
+
+    // Keep focus in the editor; indent / outdent lists or insert spaces.
+    if (key === 'Tab') {
+      e.preventDefault()
+      if (e.shiftKey) outdentSelection()
+      else indentSelection()
+      syncFromDom()
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) return
@@ -130,43 +212,98 @@ export function WysiwygEditor() {
       selection.removeAllRanges()
       selection.addRange(range)
       syncFromDom()
+      return
     }
 
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+    if (!mod) return
+
+    const lower = key.toLowerCase()
+
+    if (lower === 'b' && !e.shiftKey && !e.altKey) {
       e.preventDefault()
       handleFormat('bold')
+      return
     }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+    if (lower === 'i' && !e.shiftKey && !e.altKey) {
       e.preventDefault()
       handleFormat('italic')
+      return
+    }
+    if ((lower === 'x' && e.shiftKey) || (lower === 's' && e.shiftKey && !e.altKey)) {
+      // Mod+Shift+X (common) or Mod+Shift+S
+      e.preventDefault()
+      handleFormat('strike')
+      return
+    }
+    if (lower === 'e' && !e.shiftKey && !e.altKey) {
+      e.preventDefault()
+      handleFormat('code')
+      return
+    }
+    if (lower === ']') {
+      e.preventDefault()
+      indentSelection()
+      syncFromDom()
+      return
+    }
+    if (lower === '[') {
+      e.preventDefault()
+      outdentSelection()
+      syncFromDom()
+      return
+    }
+    if (e.altKey && (key === '1' || key === 'Digit1')) {
+      e.preventDefault()
+      handleFormat('h1')
+      return
+    }
+    if (e.altKey && (key === '2' || key === 'Digit2')) {
+      e.preventDefault()
+      handleFormat('h2')
+      return
+    }
+    if (e.shiftKey && (key === '7' || key === '&')) {
+      e.preventDefault()
+      handleFormat('ol')
+      return
+    }
+    if (e.shiftKey && (key === '8' || key === '*')) {
+      e.preventDefault()
+      handleFormat('ul')
+      return
+    }
+    if (e.shiftKey && (key === '.' || key === '>')) {
+      e.preventDefault()
+      handleFormat('quote')
+      return
     }
   }
 
   return (
     <div className="wysiwyg-editor">
       <div className="wysiwyg-toolbar" role="toolbar" aria-label="Formatting">
-        <button type="button" title="Heading 1" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
+        <button type="button" title="Heading 1 (Ctrl/Cmd+Alt+1)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
           <Heading1 size={15} />
         </button>
-        <button type="button" title="Heading 2" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
+        <button type="button" title="Heading 2 (Ctrl/Cmd+Alt+2)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
           <Heading2 size={15} />
         </button>
-        <button type="button" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
+        <button type="button" title="Bold (Ctrl/Cmd+B)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
           <Bold size={15} />
         </button>
-        <button type="button" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
+        <button type="button" title="Italic (Ctrl/Cmd+I)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
           <Italic size={15} />
         </button>
-        <button type="button" title="Strikethrough" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
+        <button type="button" title="Strikethrough (Ctrl/Cmd+Shift+X)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
           <Strikethrough size={15} />
         </button>
-        <button type="button" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
+        <button type="button" title="Bullet list (Ctrl/Cmd+Shift+8)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
           <List size={15} />
         </button>
-        <button type="button" title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
+        <button type="button" title="Numbered list (Ctrl/Cmd+Shift+7)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
           <ListOrdered size={15} />
         </button>
-        <button type="button" title="Quote" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
+        <button type="button" title="Quote (Ctrl/Cmd+Shift+.)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
           <Quote size={15} />
         </button>
       </div>
