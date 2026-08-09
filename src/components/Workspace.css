@@ -19,7 +19,7 @@
   grid-template-rows: 1fr;
 }
 
-.workspace.pure-mode .wysiwyg-toolbar {
+.workspace.pure-mode.pure-fullscreen .wysiwyg-toolbar {
   display: none;
 }
 

@@ -65,6 +65,7 @@ export function Workspace() {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pureMode, setPureMode] = useState(loadPureMode)
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement))
 
   function togglePureMode(next?: boolean) {
     setPureMode((prev) => {
@@ -77,6 +78,14 @@ export function Workspace() {
       return value
     })
   }
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -92,7 +101,7 @@ export function Workspace() {
         e.preventDefault()
         if (vault) void createNote(vault.folderId, 'Untitled')
       }
-      // Pure mode: Ctrl/Cmd+Shift+P
+      // Pure editor mode: Ctrl/Cmd+Shift+P
       if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault()
         togglePureMode()
@@ -113,7 +122,7 @@ export function Workspace() {
 
   return (
     <div
-      className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''}`}
+      className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''} ${pureMode && isFullscreen ? 'pure-fullscreen' : ''}`}
     >
       {!pureMode && (
         <nav className="ribbon" aria-label="Primary">
@@ -210,18 +219,18 @@ export function Workspace() {
                     <Code2 size={15} />
                   </button>
                   <button
-                    className={viewMode === 'wysiwyg' ? 'active' : ''}
-                    title="WYSIWYG"
-                    onClick={() => setViewMode('wysiwyg')}
-                  >
-                    <PenLine size={15} />
-                  </button>
-                  <button
                     className={viewMode === 'live' ? 'active' : ''}
                     title="Live preview"
                     onClick={() => setViewMode('live')}
                   >
                     <Columns2 size={15} />
+                  </button>
+                  <button
+                    className={viewMode === 'wysiwyg' ? 'active' : ''}
+                    title="WYSIWYG"
+                    onClick={() => setViewMode('wysiwyg')}
+                  >
+                    <PenLine size={15} />
                   </button>
                   <button
                     className={viewMode === 'reading' ? 'active' : ''}
@@ -231,7 +240,7 @@ export function Workspace() {
                     <BookOpen size={15} />
                   </button>
                   <button
-                    title="Pure mode (Ctrl/Cmd+Shift+P)"
+                    title="Pure editor mode (Ctrl/Cmd+Shift+P)"
                     aria-pressed={pureMode}
                     onClick={() => togglePureMode(true)}
                   >
@@ -259,12 +268,12 @@ export function Workspace() {
         <button
           type="button"
           className="pure-exit"
-          title="Exit pure mode (Esc)"
-          aria-label="Exit pure mode"
+          title="Exit (Esc)"
+          aria-label="Exit"
           onClick={() => togglePureMode(false)}
         >
           <Minimize2 size={16} />
-          <span>Exit pure</span>
+          <span>Exit</span>
         </button>
       )}
 
@@ -303,7 +312,7 @@ export function Workspace() {
             </div>
             <p className="settings-hint">
               Sign out ends this device session. Your vault folder stays linked to your Google account for the next
-              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure) · autosave
+              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave
             </p>
           </div>
         </div>
