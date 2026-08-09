@@ -31,10 +31,66 @@
 }
 
 .preview-pane,
-.reading-view {
+.reading-view,
+.wysiwyg-editor {
   height: 100%;
   overflow: auto;
   background: var(--bg-elevated);
+}
+
+.wysiwyg-editor {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wysiwyg-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.15rem;
+  padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.wysiwyg-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.wysiwyg-toolbar button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.wysiwyg-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+  outline: none;
+  cursor: text;
+}
+
+.wysiwyg-surface:focus {
+  outline: none;
+}
+
+.wysiwyg-surface:empty::before {
+  content: 'Start writing…';
+  color: var(--text-faint);
+  pointer-events: none;
 }
 
 .preview-pane {

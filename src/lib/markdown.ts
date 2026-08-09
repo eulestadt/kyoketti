@@ -187,6 +187,124 @@ export function renderMarkdownToHtml(
   return text
 }
 
+function serializeInline(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent ?? ''
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+  const el = node as HTMLElement
+  const tag = el.tagName.toLowerCase()
+  const children = () => Array.from(el.childNodes).map(serializeInline).join('')
+
+  if (tag === 'br') return '  \n'
+  if (tag === 'strong' || tag === 'b') return `**${children()}**`
+  if (tag === 'em' || tag === 'i') return `*${children()}*`
+  if (tag === 'del' || tag === 's') return `~~${children()}~~`
+  if (tag === 'code') return `\`${el.textContent ?? ''}\``
+  if (tag === 'a') {
+    const note = el.dataset.note
+    if (note || el.classList.contains('internal-link')) {
+      const target = note ?? (el.textContent ?? '').trim()
+      const display = (el.textContent ?? '').trim()
+      if (display && display !== target) return `[[${target}|${display}]]`
+      return `[[${target}]]`
+    }
+    if (el.classList.contains('tag')) {
+      const text = (el.textContent ?? '').trim()
+      return text.startsWith('#') ? text : `#${text}`
+    }
+    const href = el.getAttribute('href') ?? ''
+    const label = children()
+    if (!href || href === '#') return label
+    return `[${label}](${href})`
+  }
+  if (tag === 'img') {
+    const alt = el.getAttribute('alt') ?? ''
+    const src = el.getAttribute('src') ?? ''
+    return `![${alt}](${src})`
+  }
+  return children()
+}
+
+function serializeBlock(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = (node.textContent ?? '').trim()
+    return text
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+  const el = node as HTMLElement
+  const tag = el.tagName.toLowerCase()
+  const inline = () => Array.from(el.childNodes).map(serializeInline).join('')
+
+  if (tag === 'h1') return `# ${inline()}`
+  if (tag === 'h2') return `## ${inline()}`
+  if (tag === 'h3') return `### ${inline()}`
+  if (tag === 'h4') return `#### ${inline()}`
+  if (tag === 'h5') return `##### ${inline()}`
+  if (tag === 'h6') return `###### ${inline()}`
+  if (tag === 'p') return inline()
+  if (tag === 'blockquote') {
+    const body = Array.from(el.childNodes)
+      .map((child) => serializeBlock(child))
+      .filter(Boolean)
+      .join('\n')
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n')
+    return body || `> ${inline()}`
+  }
+  if (tag === 'ul') {
+    return Array.from(el.children)
+      .filter((child) => child.tagName.toLowerCase() === 'li')
+      .map((li) => `- ${Array.from(li.childNodes).map(serializeInline).join('').trim()}`)
+      .join('\n')
+  }
+  if (tag === 'ol') {
+    return Array.from(el.children)
+      .filter((child) => child.tagName.toLowerCase() === 'li')
+      .map((li, index) => `${index + 1}. ${Array.from(li.childNodes).map(serializeInline).join('').trim()}`)
+      .join('\n')
+  }
+  if (tag === 'pre') {
+    const code = el.querySelector('code')
+    const lang = [...(code?.classList ?? [])].find((c) => c.startsWith('language-'))?.replace('language-', '') ?? ''
+    const text = code?.textContent ?? el.textContent ?? ''
+    return `\`\`\`${lang}\n${text.replace(/\n$/, '')}\n\`\`\``
+  }
+  if (tag === 'hr') return '---'
+  if (tag === 'div' && el.classList.contains('cm-embed')) {
+    const link = el.querySelector('a.internal-link') as HTMLAnchorElement | null
+    const note = link?.dataset.note ?? (link?.textContent ?? '').replace(/^!/, '').trim()
+    return note ? `![[${note}]]` : ''
+  }
+  if (tag === 'div' || tag === 'span') {
+    return Array.from(el.childNodes).map(serializeBlock).filter(Boolean).join('\n\n')
+  }
+  return inline()
+}
+
+/** Convert preview/WYSIWYG HTML back to markdown body (no frontmatter). */
+export function htmlToMarkdown(html: string): string {
+  const template = document.createElement('template')
+  template.innerHTML = html.trim()
+  const blocks = Array.from(template.content.childNodes)
+    .map((node) => serializeBlock(node).trim())
+    .filter(Boolean)
+  return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n')
+}
+
+export function withPreservedFrontmatter(raw: string, nextBody: string): string {
+  if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
+    return nextBody
+  }
+  const end = raw.indexOf('\n---', 3)
+  if (end === -1) return nextBody
+  const fm = raw.slice(0, end + 4)
+  return `${fm}\n${nextBody.replace(/^\r?\n/, '')}`
+}
+
 export function buildOutline(content: string): Array<{ level: number; text: string; line: number }> {
   const { body } = parseFrontmatter(content)
   const lines = body.split(/\n/)

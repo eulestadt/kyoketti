@@ -8,6 +8,7 @@ import {
   BookOpen,
   Columns2,
   Code2,
+  PenLine,
   RefreshCw,
   FolderInput,
   Moon,
@@ -164,6 +165,13 @@ export function Workspace() {
                   onClick={() => setViewMode('source')}
                 >
                   <Code2 size={15} />
+                </button>
+                <button
+                  className={viewMode === 'wysiwyg' ? 'active' : ''}
+                  title="WYSIWYG"
+                  onClick={() => setViewMode('wysiwyg')}
+                >
+                  <PenLine size={15} />
                 </button>
                 <button
                   className={viewMode === 'live' ? 'active' : ''}

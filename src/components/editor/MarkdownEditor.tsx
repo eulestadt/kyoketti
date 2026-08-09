@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
 import { renderMarkdownToHtml } from '../../lib/markdown'
+import { WysiwygEditor } from './WysiwygEditor'
 import './MarkdownEditor.css'
 
 export function MarkdownEditor() {
@@ -43,6 +44,10 @@ export function MarkdownEditor() {
     return (
       <div className="reading-view markdown-preview" onClick={(e) => void handlePreviewClick(e)} dangerouslySetInnerHTML={{ __html: previewHtml }} />
     )
+  }
+
+  if (viewMode === 'wysiwyg') {
+    return <WysiwygEditor />
   }
 
   if (viewMode === 'live') {
