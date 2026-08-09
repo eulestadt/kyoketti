@@ -404,19 +404,16 @@ export function WysiwygEditor() {
           </button>
         </div>
       ) : (
-        <div className="wysiwyg-toolbar-collapsed">
-          <button
-            type="button"
-            className="wysiwyg-toolbar-toggle"
-            title="Show formatting toolbar"
-            aria-label="Show formatting toolbar"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={toggleToolbar}
-          >
-            <ChevronDown size={15} />
-            <span>Format</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          className="wysiwyg-format-fab"
+          title="Show formatting toolbar"
+          aria-label="Show formatting toolbar"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={toggleToolbar}
+        >
+          <ChevronDown size={15} />
+        </button>
       )}
       <div
         ref={surfaceRef}

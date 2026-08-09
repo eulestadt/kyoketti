@@ -20,7 +20,7 @@
 }
 
 .workspace.pure-mode .wysiwyg-toolbar,
-.workspace.pure-mode .wysiwyg-toolbar-collapsed {
+.workspace.pure-mode .wysiwyg-format-fab {
   display: none;
 }
 
