@@ -77,11 +77,70 @@ function insertPlainText(text: string) {
   selection.addRange(range)
 }
 
+function placeCaretIn(el: HTMLElement, atEnd = true) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(!atEnd)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function indentListItem(li: HTMLElement) {
+  const prev = li.previousElementSibling as HTMLElement | null
+  if (!prev || prev.tagName.toLowerCase() !== 'li') return false
+
+  const parentList = li.parentElement
+  if (!parentList) return false
+  const listTag = parentList.tagName.toLowerCase() === 'ol' ? 'ol' : 'ul'
+
+  let nested = prev.querySelector(`:scope > ${listTag}`) as HTMLElement | null
+  if (!nested) {
+    nested = document.createElement(listTag)
+    prev.appendChild(nested)
+  }
+  nested.appendChild(li)
+  placeCaretIn(li)
+  return true
+}
+
+function outdentListItem(li: HTMLElement) {
+  const parentList = li.parentElement
+  if (!parentList) return false
+  const parentLi = parentList.closest('li')
+  if (!parentLi || parentList === parentLi.closest('ul, ol')) {
+    // Only outdent when nested under another list item.
+    if (parentList.parentElement?.tagName.toLowerCase() !== 'li') return false
+  }
+  const grandList = parentLi?.parentElement
+  if (!parentLi || !grandList) return false
+
+  const nextSibling = li.nextElementSibling
+  // Move following siblings into a nested list under the outdented item.
+  if (nextSibling) {
+    const listTag = parentList.tagName.toLowerCase() === 'ol' ? 'ol' : 'ul'
+    let nest = li.querySelector(`:scope > ${listTag}`) as HTMLElement | null
+    if (!nest) {
+      nest = document.createElement(listTag)
+      li.appendChild(nest)
+    }
+    while (li.nextElementSibling) {
+      nest.appendChild(li.nextElementSibling)
+    }
+  }
+
+  parentLi.after(li)
+  if (!parentList.children.length) parentList.remove()
+  placeCaretIn(li)
+  return true
+}
+
 function indentSelection() {
   const selection = window.getSelection()
   const li = isInListItem(selection?.anchorNode ?? null)
   if (li) {
-    runFormat('indent')
+    if (!indentListItem(li)) insertPlainText('  ')
     return
   }
   insertPlainText('  ')
@@ -90,10 +149,8 @@ function indentSelection() {
 function outdentSelection() {
   const selection = window.getSelection()
   const li = isInListItem(selection?.anchorNode ?? null)
-  if (li) {
-    runFormat('outdent')
-    return
-  }
+  if (li && outdentListItem(li)) return
+
   if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return
   const range = selection.getRangeAt(0)
   const node = range.startContainer
