@@ -42,12 +42,17 @@ export function MarkdownEditor() {
 
   if (viewMode === 'reading') {
     return (
-      <div className="reading-view markdown-preview" onClick={(e) => void handlePreviewClick(e)} dangerouslySetInnerHTML={{ __html: previewHtml }} />
+      <div
+        key={activeFileId}
+        className="reading-view markdown-preview"
+        onClick={(e) => void handlePreviewClick(e)}
+        dangerouslySetInnerHTML={{ __html: previewHtml }}
+      />
     )
   }
 
   if (viewMode === 'wysiwyg') {
-    return <WysiwygEditor />
+    return <WysiwygEditor key={activeFileId} />
   }
 
   if (viewMode === 'live') {
@@ -55,6 +60,7 @@ export function MarkdownEditor() {
       <div className="live-split">
         <div className="editor-pane">
           <CodeMirror
+            key={activeFileId}
             value={editorContent}
             height="100%"
             theme={editorTheme}
@@ -79,6 +85,7 @@ export function MarkdownEditor() {
   return (
     <div className="editor-pane full">
       <CodeMirror
+        key={activeFileId}
         value={editorContent}
         height="100%"
         theme={editorTheme}

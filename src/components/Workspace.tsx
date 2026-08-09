@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Files,
   Search,
@@ -67,6 +67,11 @@ export function Workspace() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pureMode, setPureMode] = useState(loadPureMode)
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement))
+  const activeTabRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [activeFileId])
 
   function togglePureMode(next?: boolean) {
     setPureMode((prev) => {
@@ -212,6 +217,7 @@ export function Workspace() {
                   {tabs.map((tab) => (
                     <div
                       key={tab.id}
+                      ref={tab.id === activeFileId ? activeTabRef : undefined}
                       className={`tab ${tab.id === activeFileId ? 'active' : ''}`}
                       onClick={() => void openFile(tab.id)}
                     >

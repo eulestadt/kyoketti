@@ -507,6 +507,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!demo && !local && !session) return
       setError(null)
       try {
+        const currentId = activeFileIdRef.current
+        if (currentId && currentId !== fileId) {
+          contentCache.current.set(currentId, editorContentRef.current)
+        }
         let content = contentCache.current.get(fileId)
         let note = index.notesById.get(fileId)
         if (content == null) {
