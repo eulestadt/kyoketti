@@ -60,7 +60,10 @@ export function ConnectDrive() {
             aria-label="Sign in with Google"
           >
             {connecting ? <Loader2 className="spin" size={22} /> : <GoogleMark />}
-            <span>{connecting ? 'Redirecting…' : 'Google'}</span>
+            <span className="provider-btn-label">
+              <span className="provider-btn-kicker">Continue with</span>
+              <span>{connecting ? 'Redirecting…' : 'Google'}</span>
+            </span>
           </button>
         </div>
 

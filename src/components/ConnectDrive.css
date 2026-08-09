@@ -91,12 +91,12 @@
 
 .provider-btn {
   width: min(168px, 100%);
-  min-height: 96px;
+  min-height: 104px;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -123,6 +123,20 @@
   width: 28px;
   height: 28px;
   display: block;
+}
+
+.provider-btn-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  line-height: 1.2;
+}
+
+.provider-btn-kicker {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-faint);
 }
 
 .connect-demo-link {
