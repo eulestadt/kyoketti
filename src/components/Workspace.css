@@ -282,3 +282,53 @@
     display: none;
   }
 }
+
+@media print {
+  .ribbon,
+  .left-sidebar,
+  .right-sidebar,
+  .tab-bar,
+  .status-bar,
+  .pure-exit,
+  .toast-error,
+  .modal-backdrop,
+  .quick-switcher,
+  .wysiwyg-toolbar {
+    display: none !important;
+  }
+
+  .workspace,
+  .workspace.graph-mode,
+  .workspace.pure-mode {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .main-stage,
+  .editor-stage {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  .editor-pane,
+  .live-split,
+  .wysiwyg-editor,
+  .cm-editor {
+    display: none !important;
+  }
+
+  .reading-view {
+    display: block !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    color: black !important;
+    background: white !important;
+  }
+}

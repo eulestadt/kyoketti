@@ -105,6 +105,26 @@ export function Workspace() {
       if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault()
         togglePureMode()
+        return
+      }
+      // Print Reading view: Ctrl/Cmd+P
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        const previousMode = viewMode
+        setViewMode('reading')
+        const printReading = () => {
+          const restore = () => {
+            if (previousMode !== 'reading') setViewMode(previousMode)
+            window.removeEventListener('afterprint', restore)
+          }
+          window.addEventListener('afterprint', restore)
+          window.print()
+        }
+        // Wait a frame so Reading view is mounted before the print dialog.
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(printReading)
+        })
+        return
       }
       if (e.key === 'Escape') {
         if (switcherOpen) {
@@ -118,7 +138,7 @@ export function Workspace() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [vault, createNote, pureMode, switcherOpen])
+  }, [vault, createNote, pureMode, switcherOpen, viewMode, setViewMode])
 
   return (
     <div
