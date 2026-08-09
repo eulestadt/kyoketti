@@ -40,6 +40,18 @@ The first screen asks you to **Link Google Drive**. You can also use **Try a loc
 - `npm run build` — production build
 - `npm run preview` — preview production build
 
-## Notes
+## Deploy
 
-Kyoketti requests Google Drive access so it can read and write markdown files in the vault folder you choose. Tokens are kept in `localStorage` for the browser session lifetime of the access token.
+### Railway (current production)
+Live: https://kyoketti-production.up.railway.app
+
+### Cloudflare Workers
+Requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, then:
+
+```bash
+npm run deploy:cloudflare
+```
+
+This builds the Vite app and deploys `dist/` as a Workers static SPA (`wrangler.jsonc`).
+
+Add the Cloudflare `*.workers.dev` (or custom) origin to your Google OAuth **Authorized JavaScript origins** as well.
