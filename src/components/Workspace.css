@@ -131,8 +131,10 @@
 
 .main-stage {
   min-width: 0;
+  max-width: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .tab-bar {
@@ -205,7 +207,10 @@
 }
 
 .editor-stage {
+  min-width: 0;
   min-height: 0;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   background: var(--bg-elevated);
 }
@@ -215,11 +220,19 @@
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  min-width: 0;
   padding: 0.25rem 0.75rem;
   border-top: 1px solid var(--border);
   background: var(--bg-status);
   color: var(--text-faint);
   font-size: 0.75rem;
+}
+
+.status-bar > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .save-pill {

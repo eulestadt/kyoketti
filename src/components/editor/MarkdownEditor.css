@@ -16,7 +16,10 @@
 
 .editor-pane {
   height: 100%;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
+  max-width: 100%;
   overflow: hidden;
   background: var(--bg-elevated);
 }
@@ -24,12 +27,15 @@
 .editor-pane.full,
 .live-split {
   height: 100%;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
+  max-width: 100%;
 }
 
 .live-split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -37,6 +43,8 @@
 .reading-view,
 .wysiwyg-editor {
   height: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
   background: var(--bg-elevated);
 }
@@ -146,6 +154,8 @@
 .markdown-preview {
   line-height: 1.65;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-preview h1,
@@ -211,17 +221,29 @@
 
 .cm-editor {
   height: 100%;
+  width: 100%;
+  max-width: 100%;
   font-size: 0.95rem;
   background: transparent !important;
+  overflow: hidden;
 }
 
 .cm-editor .cm-scroller {
   font-family: var(--font-mono);
   line-height: 1.6;
+  width: 100%;
+  max-width: 100%;
+  overflow: auto !important;
 }
 
 .cm-editor .cm-content {
   padding: 1.1rem 1.2rem 3rem;
+  max-width: 100%;
+}
+
+.cm-editor .cm-line {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 [data-theme='light'] .cm-editor {
@@ -241,8 +263,8 @@
 
 @media (max-width: 900px) {
   .live-split {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
   .preview-pane {
     border-left: none;

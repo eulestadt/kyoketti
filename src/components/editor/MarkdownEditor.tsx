@@ -9,6 +9,12 @@ import { renderMarkdownToHtml } from '../../lib/markdown'
 import { WysiwygEditor } from './WysiwygEditor'
 import './MarkdownEditor.css'
 
+const editorChrome = EditorView.theme({
+  '&': { height: '100%', width: '100%', maxWidth: '100%' },
+  '.cm-scroller': { overflow: 'auto', width: '100%', maxWidth: '100%' },
+  '.cm-content': { maxWidth: '100%' },
+})
+
 export function MarkdownEditor() {
   const { editorContent, setEditorContent, viewMode, openNoteByTitle, index, activeFileId } = useApp()
   const { theme } = useTheme()
@@ -19,6 +25,11 @@ export function MarkdownEditor() {
       return note ? `#note/${note.id}` : null
     })
   }, [editorContent, index.notesByTitle])
+
+  const extensions = useMemo(
+    () => [markdown({ base: markdownLanguage }), EditorView.lineWrapping, editorChrome],
+    [],
+  )
 
   const editorTheme = theme === 'dark' ? oneDark : 'light'
 
@@ -64,7 +75,8 @@ export function MarkdownEditor() {
             value={editorContent}
             height="100%"
             theme={editorTheme}
-            extensions={[markdown({ base: markdownLanguage }), EditorView.lineWrapping]}
+            width="100%"
+            extensions={extensions}
             onChange={(value) => setEditorContent(value)}
             basicSetup={{
               lineNumbers: false,
@@ -88,8 +100,9 @@ export function MarkdownEditor() {
         key={activeFileId}
         value={editorContent}
         height="100%"
+        width="100%"
         theme={editorTheme}
-        extensions={[markdown({ base: markdownLanguage }), EditorView.lineWrapping]}
+        extensions={extensions}
         onChange={(value) => setEditorContent(value)}
         basicSetup={{
           lineNumbers: true,
