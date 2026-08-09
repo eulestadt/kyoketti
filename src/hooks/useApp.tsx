@@ -42,6 +42,19 @@ import {
   isDemoMode,
 } from '../lib/demoVault'
 import {
+  clearLocalVault,
+  isLocalMode,
+  localCreateFolder,
+  localCreateNote,
+  localListVault,
+  localRead,
+  localRename,
+  localTrash,
+  localWrite,
+  pickLocalVaultFolder,
+  restoreLocalVault,
+} from '../lib/localVault'
+import {
   buildPaths,
   createEmptyIndex,
   markdownFiles,
@@ -66,6 +79,7 @@ type AppState = {
   bootstrapping: boolean
   session: AuthSession | null
   demo: boolean
+  local: boolean
   connecting: boolean
   vault: VaultConfig | null
   tree: VaultNode | null
@@ -84,6 +98,7 @@ type AppState = {
 
 type AppActions = {
   connect: () => Promise<void>
+  connectLocal: () => Promise<void>
   startDemo: () => void
   disconnect: () => void
   setVault: (vault: VaultConfig) => Promise<void>
@@ -118,6 +133,7 @@ function loadVaultConfig(): VaultConfig | null {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [bootstrapping, setBootstrapping] = useState(true)
   const [demo, setDemo] = useState(() => isDemoMode())
+  const [local, setLocal] = useState(() => isLocalMode())
   const [session, setSession] = useState<AuthSession | null>(() => {
     if (isDemoMode()) {
       return {
@@ -127,10 +143,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: 'Demo User',
       }
     }
+    if (isLocalMode()) {
+      return {
+        accessToken: 'local',
+        expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365,
+        email: 'local@device',
+        name: 'Local vault',
+      }
+    }
     return loadSession()
   })
   const [connecting, setConnecting] = useState(false)
-  const [vault, setVaultState] = useState<VaultConfig | null>(() => (isDemoMode() ? loadVaultConfig() : null))
+  const [vault, setVaultState] = useState<VaultConfig | null>(() =>
+    isDemoMode() || isLocalMode() ? loadVaultConfig() : null,
+  )
   const [tree, setTree] = useState<VaultNode | null>(null)
   const [index, setIndex] = useState<VaultIndex>(() => createEmptyIndex())
   const [loadingVault, setLoadingVault] = useState(false)
@@ -148,6 +174,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const editorContentRef = useRef(editorContent)
   const activeFileIdRef = useRef(activeFileId)
   const demoRef = useRef(demo)
+  const localRef = useRef(local)
   const sessionRef = useRef(session)
 
   useEffect(() => {
@@ -160,11 +187,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     demoRef.current = demo
   }, [demo])
   useEffect(() => {
+    localRef.current = local
+  }, [local])
+  useEffect(() => {
     sessionRef.current = session
   }, [session])
 
   const ensureDriveToken = useCallback(async (): Promise<string> => {
     if (demoRef.current) return 'demo'
+    if (localRef.current) return 'local'
     const current = sessionRef.current
     if (current?.accessToken && current.expiresAt > Date.now() + 60_000) {
       return current.accessToken
@@ -199,6 +230,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (isLocalMode()) {
+        try {
+          const restored = await restoreLocalVault()
+          if (cancelled) return
+          if (!restored) {
+            setLocal(false)
+            setSession(null)
+            setVaultState(null)
+            setBootstrapping(false)
+            return
+          }
+          setLocal(true)
+          setDemo(false)
+          disableDemoMode()
+          setSession({
+            accessToken: 'local',
+            expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365,
+            email: 'local@device',
+            name: 'Local vault',
+          })
+          localStorage.setItem(VAULT_KEY, JSON.stringify(restored))
+          setVaultState(restored)
+          setStatusMessage(`Local vault: ${restored.folderName}`)
+        } catch (err) {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Failed to restore local vault')
+            setLocal(false)
+            setSession(null)
+            setVaultState(null)
+          }
+        } finally {
+          if (!cancelled) setBootstrapping(false)
+        }
+        return
+      }
+
       try {
         const me = await fetchMe()
         if (cancelled) return
@@ -211,6 +278,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         setDemo(false)
+        setLocal(false)
         disableDemoMode()
         const tokens = await fetchDriveToken()
         if (cancelled) return
@@ -248,13 +316,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setConnecting(true)
     setError(null)
     disableDemoMode()
+    await clearLocalVault()
     setDemo(false)
+    setLocal(false)
     startGoogleLogin(false)
   }, [])
 
+  const connectLocal = useCallback(async () => {
+    setConnecting(true)
+    setError(null)
+    try {
+      disableDemoMode()
+      setDemo(false)
+      const next = await pickLocalVaultFolder()
+      setLocal(true)
+      setSession({
+        accessToken: 'local',
+        expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365,
+        email: 'local@device',
+        name: 'Local vault',
+      })
+      localStorage.setItem(VAULT_KEY, JSON.stringify(next))
+      setVaultState(next)
+      contentCache.current.clear()
+      setTabs([])
+      setActiveFileId(null)
+      setEditorContentState('')
+      setStatusMessage(`Local vault: ${next.folderName}`)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        /* user cancelled picker */
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to open local folder')
+      }
+    } finally {
+      setConnecting(false)
+    }
+  }, [])
+
   const startDemo = useCallback(() => {
+    void clearLocalVault()
     enableDemoMode()
     setDemo(true)
+    setLocal(false)
     setSession({
       accessToken: 'demo',
       expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 365,
@@ -269,7 +373,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {
     void (async () => {
-      if (!demo) {
+      if (!demo && !local) {
         try {
           await logoutServer()
         } catch {
@@ -277,9 +381,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       disableDemoMode()
+      await clearLocalVault()
       clearSession()
       localStorage.removeItem(VAULT_KEY)
       setDemo(false)
+      setLocal(false)
       setSession(null)
       setVaultState(null)
       setTree(null)
@@ -289,19 +395,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEditorContentState('')
       setStatusMessage('Signed out')
     })()
-  }, [demo])
+  }, [demo, local])
 
   const refreshVault = useCallback(async () => {
     if (!vault) return
-    if (!demo && !session) return
+    if (!demo && !local && !session) return
     setLoadingVault(true)
     setError(null)
     setStatusMessage('Indexing vault…')
     try {
-      const accessToken = demo ? 'demo' : await ensureDriveToken()
+      const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
       const { root, files } = demo
         ? demoListVault()
-        : await listVaultTree(accessToken, vault.folderId, vault.folderName)
+        : local
+          ? await localListVault(vault.folderName)
+          : await listVaultTree(accessToken, vault.folderId, vault.folderName)
       setTree(root)
       const paths = buildPaths(files, vault.folderId)
       const mdFiles = markdownFiles(files)
@@ -314,7 +422,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             if (contentCache.current.has(file.id)) {
               return { file, content: contentCache.current.get(file.id)! }
             }
-            const content = demo ? demoRead(file.id) : await downloadTextFile(accessToken, file.id)
+            const content = demo
+              ? demoRead(file.id)
+              : local
+                ? await localRead(file.id)
+                : await downloadTextFile(accessToken, file.id)
             contentCache.current.set(file.id, content)
             return { file, content }
           }),
@@ -329,14 +441,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = err instanceof Error ? err.message : 'Failed to load vault'
       setError(message)
       setStatusMessage('Vault load failed')
-      if (!demo && message.toLowerCase().includes('unauthorized')) {
+      if (!demo && !local && message.toLowerCase().includes('unauthorized')) {
         clearSession()
         setSession(null)
       }
     } finally {
       setLoadingVault(false)
     }
-  }, [session, vault, demo, ensureDriveToken])
+  }, [session, vault, demo, local, ensureDriveToken])
 
   const setVault = useCallback(async (next: VaultConfig) => {
     localStorage.setItem(VAULT_KEY, JSON.stringify(next))
@@ -345,7 +457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveFileId(null)
     setEditorContentState('')
     contentCache.current.clear()
-    if (!demoRef.current) {
+    if (!demoRef.current && !localRef.current) {
       try {
         await saveVaultServer(next.folderId, next.folderName)
       } catch (err) {
@@ -355,34 +467,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clearVault = useCallback(() => {
-    localStorage.removeItem(VAULT_KEY)
-    setVaultState(null)
-    setTree(null)
-    setIndex(createEmptyIndex())
-    setTabs([])
-    setActiveFileId(null)
-    setEditorContentState('')
-    contentCache.current.clear()
-    if (!demoRef.current) {
-      void clearVaultServer().catch(() => undefined)
-    }
+    void (async () => {
+      if (localRef.current) {
+        await clearLocalVault()
+        localStorage.removeItem(VAULT_KEY)
+        setLocal(false)
+        setSession(null)
+        setVaultState(null)
+        setTree(null)
+        setIndex(createEmptyIndex())
+        setTabs([])
+        setActiveFileId(null)
+        setEditorContentState('')
+        contentCache.current.clear()
+        setStatusMessage('Choose a local folder again')
+        return
+      }
+      localStorage.removeItem(VAULT_KEY)
+      setVaultState(null)
+      setTree(null)
+      setIndex(createEmptyIndex())
+      setTabs([])
+      setActiveFileId(null)
+      setEditorContentState('')
+      contentCache.current.clear()
+      if (!demoRef.current) {
+        void clearVaultServer().catch(() => undefined)
+      }
+    })()
   }, [])
 
   useEffect(() => {
     if (bootstrapping) return
-    if ((session || demo) && vault) void refreshVault()
-  }, [session, vault, demo, refreshVault, bootstrapping])
+    if ((session || demo || local) && vault) void refreshVault()
+  }, [session, vault, demo, local, refreshVault, bootstrapping])
 
   const openFile = useCallback(
     async (fileId: string) => {
-      if (!demo && !session) return
+      if (!demo && !local && !session) return
       setError(null)
       try {
         let content = contentCache.current.get(fileId)
         let note = index.notesById.get(fileId)
         if (content == null) {
-          const accessToken = demo ? 'demo' : await ensureDriveToken()
-          content = demo ? demoRead(fileId) : await downloadTextFile(accessToken, fileId)
+          const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
+          content = demo
+            ? demoRead(fileId)
+            : local
+              ? await localRead(fileId)
+              : await downloadTextFile(accessToken, fileId)
           contentCache.current.set(fileId, content)
         }
         if (!note) {
@@ -409,9 +542,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : 'Failed to open file')
       }
     },
-    [session, demo, index.notesById, tree, ensureDriveToken],
+    [session, demo, local, index.notesById, tree, ensureDriveToken],
   )
-
   const closeTab = useCallback(
     (fileId: string) => {
       setTabs((prev) => {
@@ -434,10 +566,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const fileId = activeFileIdRef.current
     const content = editorContentRef.current
     if (!fileId) return
-    if (!demoRef.current && !sessionRef.current) return
+    if (!demoRef.current && !localRef.current && !sessionRef.current) return
     setSaveStatus('saving')
     try {
       if (demoRef.current) demoWrite(fileId, content)
+      else if (localRef.current) await localWrite(fileId, content)
       else {
         const accessToken = await ensureDriveToken()
         await updateTextFile(accessToken, fileId, content)
@@ -482,38 +615,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const createNote = useCallback(
     async (parentId: string, name: string) => {
       const content = `# ${name.replace(/\.md$/i, '')}\n\n`
-      const accessToken = demo ? 'demo' : await ensureDriveToken()
       const file = demo
         ? demoCreateNote(parentId, name, content)
-        : await createMarkdownFile(accessToken, parentId, name, content)
+        : local
+          ? await localCreateNote(parentId, name, content)
+          : await createMarkdownFile(await ensureDriveToken(), parentId, name, content)
       contentCache.current.set(file.id, content)
       await refreshVault()
       await openFile(file.id)
     },
-    [demo, refreshVault, openFile, ensureDriveToken],
+    [demo, local, refreshVault, openFile, ensureDriveToken],
   )
 
   const createDirectory = useCallback(
     async (parentId: string, name: string) => {
       if (demo) demoCreateFolder(parentId, name)
+      else if (local) await localCreateFolder(parentId, name)
       else await createFolder(await ensureDriveToken(), parentId, name)
       await refreshVault()
     },
-    [demo, refreshVault, ensureDriveToken],
+    [demo, local, refreshVault, ensureDriveToken],
   )
 
   const renameNode = useCallback(
     async (id: string, name: string) => {
       if (demo) demoRename(id, name)
+      else if (local) await localRename(id, name)
       else await renameFile(await ensureDriveToken(), id, name)
       await refreshVault()
     },
-    [demo, refreshVault, ensureDriveToken],
+    [demo, local, refreshVault, ensureDriveToken],
   )
 
   const deleteNode = useCallback(
     async (id: string) => {
       if (demo) demoTrash(id)
+      else if (local) await localTrash(id)
       else await trashFile(await ensureDriveToken(), id)
       contentCache.current.delete(id)
       setIndex((prev) => removeNote(prev, id))
@@ -524,9 +661,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refreshVault()
     },
-    [demo, activeFileId, refreshVault, ensureDriveToken],
+    [demo, local, activeFileId, refreshVault, ensureDriveToken],
   )
-
   const openNoteByTitle = useCallback(
     async (title: string) => {
       const note = index.notesByTitle.get(title.toLowerCase())
@@ -542,6 +678,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       bootstrapping,
       session,
       demo,
+      local,
       connecting,
       vault,
       tree,
@@ -557,6 +694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       error,
       statusMessage,
       connect,
+      connectLocal,
       startDemo,
       disconnect,
       setVault,
@@ -580,6 +718,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       bootstrapping,
       session,
       demo,
+      local,
       connecting,
       vault,
       tree,
@@ -595,6 +734,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       error,
       statusMessage,
       connect,
+      connectLocal,
       startDemo,
       disconnect,
       setVault,

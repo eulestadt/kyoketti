@@ -1,6 +1,7 @@
-import { Loader2, Moon, Sun } from 'lucide-react'
+import { Folder, Loader2, Moon, Sun } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
+import { isLocalFolderSupported } from '../lib/localVault'
 import { KyokettiLogo } from './KyokettiLogo'
 import './ConnectDrive.css'
 
@@ -28,8 +29,9 @@ function GoogleMark() {
 }
 
 export function ConnectDrive() {
-  const { connect, connecting, error, startDemo } = useApp()
+  const { connect, connectLocal, connecting, error, startDemo } = useApp()
   const { theme, toggleTheme } = useTheme()
+  const localSupported = isLocalFolderSupported()
 
   return (
     <div className="connect-screen">
@@ -49,7 +51,8 @@ export function ConnectDrive() {
           <h1>Kyoketti</h1>
         </div>
         <p className="connect-tagline">
-          Your second brain on the web — your Obsidian markdown notes living in your Google Drive.
+          Your second brain on the web — Obsidian markdown notes in Google Drive or a local folder (including
+          iCloud Drive on Mac).
         </p>
 
         <div className="connect-auth">
@@ -57,23 +60,49 @@ export function ConnectDrive() {
             className="provider-btn"
             onClick={() => void connect()}
             disabled={connecting}
-            aria-label="Sign in with Google"
+            aria-label="Continue with Google"
           >
             {connecting ? <Loader2 className="spin" size={22} /> : <GoogleMark />}
             <span className="provider-btn-label">
               <span className="provider-btn-kicker">Continue with</span>
-              <span>{connecting ? 'Redirecting…' : 'Google'}</span>
+              <span>Google</span>
+            </span>
+          </button>
+
+          <button
+            className="provider-btn"
+            onClick={() => void connectLocal()}
+            disabled={connecting || !localSupported}
+            aria-label="Continue with Local"
+            title={
+              localSupported
+                ? 'Open a folder on this device. Works with iCloud Drive vaults on Mac.'
+                : 'Needs Chrome or Edge on desktop'
+            }
+          >
+            <Folder className="local-mark" size={28} strokeWidth={1.75} />
+            <span className="provider-btn-label">
+              <span className="provider-btn-kicker">Continue with</span>
+              <span>Local</span>
+              <span className="provider-btn-sub">iCloud compatible</span>
             </span>
           </button>
         </div>
+
+        {!localSupported && (
+          <p className="connect-local-note">
+            Local folders need Chrome or Edge on desktop. Use Google, or try the demo vault below.
+          </p>
+        )}
 
         <button className="connect-demo-link" onClick={startDemo}>
           Try a local demo vault
         </button>
 
         <p className="connect-legal">
-          Kyoketti is an independent product and is not affiliated with, endorsed by, or associated with Obsidian.
-          Obsidian® is a trademark of Dynalist Inc. All rights reserved by their respective owners.
+          Kyoketti is not affiliated with, endorsed by, or associated with Obsidian. But I am a huge lover of all that
+          they've done. I'm not a lawyer but whatever is required to communicate that Obsidian® is reserved by its
+          registered owner belong here.
         </p>
 
         {error && <p className="connect-error">{error}</p>}

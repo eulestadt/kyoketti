@@ -86,12 +86,14 @@
 .connect-auth {
   display: flex;
   justify-content: center;
-  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 
 .provider-btn {
   width: min(168px, 100%);
-  min-height: 104px;
+  min-height: 118px;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -125,6 +127,10 @@
   display: block;
 }
 
+.local-mark {
+  color: var(--accent);
+}
+
 .provider-btn-label {
   display: flex;
   flex-direction: column;
@@ -137,6 +143,20 @@
   font-size: 0.72rem;
   font-weight: 400;
   color: var(--text-faint);
+}
+
+.provider-btn-sub {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-faint);
+  margin-top: 0.15rem;
+}
+
+.connect-local-note {
+  margin: 0 0 0.85rem;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 .connect-demo-link {

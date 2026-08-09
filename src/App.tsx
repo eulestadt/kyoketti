@@ -6,7 +6,7 @@ import { Workspace } from './components/Workspace'
 import './index.css'
 
 function Root() {
-  const { session, vault, demo, bootstrapping } = useApp()
+  const { session, vault, demo, local, bootstrapping } = useApp()
 
   if (bootstrapping) {
     return (
@@ -16,7 +16,7 @@ function Root() {
     )
   }
 
-  if (!session && !demo) return <ConnectDrive />
+  if (!session && !demo && !local) return <ConnectDrive />
   if (!vault) return <VaultPicker />
   return <Workspace />
 }

@@ -58,6 +58,7 @@ export function Workspace() {
     disconnect,
     createNote,
     session,
+    local,
     error,
   } = useApp()
 
@@ -331,8 +332,9 @@ export function Workspace() {
               </button>
             </div>
             <p className="settings-hint">
-              Sign out ends this device session. Your vault folder stays linked to your Google account for the next
-              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave
+              {local
+                ? 'Local mode reads and writes a folder on this device. If that folder is in iCloud Drive, Apple syncs it. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
+                : 'Sign out ends this device session. Your vault folder stays linked to your Google account for the next sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'}
             </p>
           </div>
         </div>
