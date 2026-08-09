@@ -3,6 +3,7 @@ type LogoProps = {
   title?: string
 }
 
+/** Notebook mark with filled cover and a heavy white K. */
 export function KyokettiLogo({ className, title = 'Kyoketti' }: LogoProps) {
   return (
     <svg
@@ -14,19 +15,19 @@ export function KyokettiLogo({ className, title = 'Kyoketti' }: LogoProps) {
       aria-label={title}
     >
       <title>{title}</title>
-      <rect x="14" y="10" width="36" height="44" rx="6" stroke="currentColor" strokeWidth="2.5" />
+      {/* filled notebook body */}
+      <rect x="14" y="10" width="36" height="44" rx="6" fill="currentColor" />
+      {/* spiral binding */}
       <path
-        d="M14 20h-4.5M14 29h-4.5M14 38h-4.5M14 47h-4.5"
+        d="M14 20h-5M14 29h-5M14 38h-5M14 47h-5"
         stroke="currentColor"
-        strokeWidth="2.5"
+        strokeWidth="3"
         strokeLinecap="round"
       />
+      {/* heavy white K — filled geometric letterform */}
       <path
-        d="M27 20v24M27 32l14-12M27 32l14 12"
-        stroke="currentColor"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        fill="#fff"
+        d="M24.5 18.5h7.2v10.1l9.4-10.1h8.6L37.2 32l12.7 13.5h-8.8l-9.4-10.2v10.2h-7.2V18.5z"
       />
     </svg>
   )
