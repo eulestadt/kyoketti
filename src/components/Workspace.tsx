@@ -13,6 +13,8 @@ import {
   FolderInput,
   Moon,
   Sun,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
@@ -24,6 +26,16 @@ import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
 import { displayNoteName } from '../lib/noteNames'
 import './Workspace.css'
+
+const PURE_KEY = 'kyoketti.pureMode'
+
+function loadPureMode(): boolean {
+  try {
+    return localStorage.getItem(PURE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 export function Workspace() {
   const {
@@ -52,6 +64,19 @@ export function Workspace() {
   const { theme, toggleTheme } = useTheme()
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pureMode, setPureMode] = useState(loadPureMode)
+
+  function togglePureMode(next?: boolean) {
+    setPureMode((prev) => {
+      const value = typeof next === 'boolean' ? next : !prev
+      try {
+        localStorage.setItem(PURE_KEY, value ? '1' : '0')
+      } catch {
+        /* ignore */
+      }
+      return value
+    })
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -67,54 +92,71 @@ export function Workspace() {
         e.preventDefault()
         if (vault) void createNote(vault.folderId, 'Untitled')
       }
-      if (e.key === 'Escape') setSwitcherOpen(false)
+      // Pure mode: Ctrl/Cmd+Shift+P
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        togglePureMode()
+      }
+      if (e.key === 'Escape') {
+        if (switcherOpen) {
+          setSwitcherOpen(false)
+          return
+        }
+        if (pureMode) {
+          togglePureMode(false)
+        }
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [vault, createNote])
+  }, [vault, createNote, pureMode, switcherOpen])
 
   return (
-    <div className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''}`}>
-      <nav className="ribbon" aria-label="Primary">
-        <button
-          className={leftPanel === 'files' ? 'active' : ''}
-          title="Files"
-          onClick={() => setLeftPanel('files')}
-        >
-          <Files size={18} />
-        </button>
-        <button
-          className={leftPanel === 'search' ? 'active' : ''}
-          title="Search"
-          onClick={() => setLeftPanel('search')}
-        >
-          <Search size={18} />
-        </button>
-        <button
-          className={leftPanel === 'graph' ? 'active' : ''}
-          title="Graph"
-          onClick={() => setLeftPanel('graph')}
-        >
-          <Network size={18} />
-        </button>
-        <div className="ribbon-spacer" />
-        <button
-          className="theme-toggle icon-only"
-          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-          aria-label="Toggle color theme"
-          onClick={toggleTheme}
-        >
-          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-        </button>
-        <button title="Toggle right sidebar" onClick={() => setRightPanel(rightPanel ? null : 'backlinks')}>
-          <PanelRight size={18} />
-        </button>
-        <button title="Settings" onClick={() => setSettingsOpen((v) => !v)}>
-          <Settings size={18} />
-        </button>
-      </nav>
+    <div
+      className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''}`}
+    >
+      {!pureMode && (
+        <nav className="ribbon" aria-label="Primary">
+          <button
+            className={leftPanel === 'files' ? 'active' : ''}
+            title="Files"
+            onClick={() => setLeftPanel('files')}
+          >
+            <Files size={18} />
+          </button>
+          <button
+            className={leftPanel === 'search' ? 'active' : ''}
+            title="Search"
+            onClick={() => setLeftPanel('search')}
+          >
+            <Search size={18} />
+          </button>
+          <button
+            className={leftPanel === 'graph' ? 'active' : ''}
+            title="Graph"
+            onClick={() => setLeftPanel('graph')}
+          >
+            <Network size={18} />
+          </button>
+          <div className="ribbon-spacer" />
+          <button
+            className="theme-toggle icon-only"
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label="Toggle color theme"
+            onClick={toggleTheme}
+          >
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
+          <button title="Toggle right sidebar" onClick={() => setRightPanel(rightPanel ? null : 'backlinks')}>
+            <PanelRight size={18} />
+          </button>
+          <button title="Settings" onClick={() => setSettingsOpen((v) => !v)}>
+            <Settings size={18} />
+          </button>
+        </nav>
+      )}
 
-      {leftPanel !== 'graph' && (
+      {leftPanel !== 'graph' && !pureMode && (
         <aside className="left-sidebar">
           <div className="left-header">
             <div>
@@ -130,77 +172,101 @@ export function Workspace() {
       )}
 
       <main className="main-stage">
-        {leftPanel === 'graph' ? (
+        {leftPanel === 'graph' && !pureMode ? (
           <GraphView />
         ) : (
           <>
-            <div className="tab-bar">
-              <div className="tabs">
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.id}
-                    className={`tab ${tab.id === activeFileId ? 'active' : ''}`}
-                    onClick={() => void openFile(tab.id)}
-                  >
-                    <span>
-                      {tab.dirty ? '• ' : ''}
-                      {displayNoteName(tab.name)}
-                    </span>
-                    <button
-                      className="tab-close"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        closeTab(tab.id)
-                      }}
+            {!pureMode && (
+              <div className="tab-bar">
+                <div className="tabs">
+                  {tabs.map((tab) => (
+                    <div
+                      key={tab.id}
+                      className={`tab ${tab.id === activeFileId ? 'active' : ''}`}
+                      onClick={() => void openFile(tab.id)}
                     >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                      <span>
+                        {tab.dirty ? '• ' : ''}
+                        {displayNoteName(tab.name)}
+                      </span>
+                      <button
+                        className="tab-close"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          closeTab(tab.id)
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="view-modes">
+                  <button
+                    className={viewMode === 'source' ? 'active' : ''}
+                    title="Source"
+                    onClick={() => setViewMode('source')}
+                  >
+                    <Code2 size={15} />
+                  </button>
+                  <button
+                    className={viewMode === 'wysiwyg' ? 'active' : ''}
+                    title="WYSIWYG"
+                    onClick={() => setViewMode('wysiwyg')}
+                  >
+                    <PenLine size={15} />
+                  </button>
+                  <button
+                    className={viewMode === 'live' ? 'active' : ''}
+                    title="Live preview"
+                    onClick={() => setViewMode('live')}
+                  >
+                    <Columns2 size={15} />
+                  </button>
+                  <button
+                    className={viewMode === 'reading' ? 'active' : ''}
+                    title="Reading view"
+                    onClick={() => setViewMode('reading')}
+                  >
+                    <BookOpen size={15} />
+                  </button>
+                  <button
+                    title="Pure mode (Ctrl/Cmd+Shift+P)"
+                    aria-pressed={pureMode}
+                    onClick={() => togglePureMode(true)}
+                  >
+                    <Maximize2 size={15} />
+                  </button>
+                </div>
               </div>
-              <div className="view-modes">
-                <button
-                  className={viewMode === 'source' ? 'active' : ''}
-                  title="Source"
-                  onClick={() => setViewMode('source')}
-                >
-                  <Code2 size={15} />
-                </button>
-                <button
-                  className={viewMode === 'wysiwyg' ? 'active' : ''}
-                  title="WYSIWYG"
-                  onClick={() => setViewMode('wysiwyg')}
-                >
-                  <PenLine size={15} />
-                </button>
-                <button
-                  className={viewMode === 'live' ? 'active' : ''}
-                  title="Live preview"
-                  onClick={() => setViewMode('live')}
-                >
-                  <Columns2 size={15} />
-                </button>
-                <button
-                  className={viewMode === 'reading' ? 'active' : ''}
-                  title="Reading view"
-                  onClick={() => setViewMode('reading')}
-                >
-                  <BookOpen size={15} />
-                </button>
-              </div>
-            </div>
+            )}
             <div className="editor-stage">
               <MarkdownEditor />
             </div>
           </>
         )}
-        <footer className="status-bar">
-          <span>{statusMessage}</span>
-          <span className={`save-pill ${saveStatus}`}>{saveStatus}</span>
-        </footer>
+        {!pureMode && (
+          <footer className="status-bar">
+            <span>{statusMessage}</span>
+            <span className={`save-pill ${saveStatus}`}>{saveStatus}</span>
+          </footer>
+        )}
       </main>
 
-      <RightSidebar />
+      {!pureMode && <RightSidebar />}
+
+      {pureMode && (
+        <button
+          type="button"
+          className="pure-exit"
+          title="Exit pure mode (Esc)"
+          aria-label="Exit pure mode"
+          onClick={() => togglePureMode(false)}
+        >
+          <Minimize2 size={16} />
+          <span>Exit pure</span>
+        </button>
+      )}
 
       <QuickSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
 
@@ -237,7 +303,7 @@ export function Workspace() {
             </div>
             <p className="settings-hint">
               Sign out ends this device session. Your vault folder stays linked to your Google account for the next
-              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · autosave
+              sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure) · autosave
             </p>
           </div>
         </div>

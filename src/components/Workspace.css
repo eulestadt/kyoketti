@@ -11,6 +11,50 @@
   grid-template-columns: 48px minmax(0, 1fr) auto;
 }
 
+.workspace.pure-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.pure-mode .main-stage {
+  grid-template-rows: 1fr;
+}
+
+.workspace.pure-mode .wysiwyg-toolbar {
+  display: none;
+}
+
+.pure-exit {
+  position: fixed;
+  top: 0.85rem;
+  right: 0.85rem;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 160ms ease, transform 160ms ease, color 140ms ease, background 140ms ease;
+  backdrop-filter: blur(6px);
+}
+
+.workspace.pure-mode:hover .pure-exit,
+.pure-exit:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pure-exit:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
 .ribbon {
   display: flex;
   flex-direction: column;
@@ -231,10 +275,10 @@
 }
 
 @media (max-width: 800px) {
-  .workspace {
+  .workspace:not(.pure-mode) {
     grid-template-columns: 48px 1fr;
   }
-  .left-sidebar {
+  .workspace:not(.pure-mode) .left-sidebar {
     display: none;
   }
 }
