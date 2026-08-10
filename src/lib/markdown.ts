@@ -154,7 +154,7 @@ export function renderMarkdownToHtml(
         .filter(Boolean)
       return `<blockquote>${lines.map((line) => `<p>${line}</p>`).join('')}</blockquote>\n`
     })
-    // Unordered lists: -, *, or + (CommonMark / Obsidian)
+    // Unordered lists: -, *, or + (CommonMark)
     .replace(/^\s*[-*+]\s+(.+)$/gm, '<li>$1</li>')
     .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ordered">$1</li>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')

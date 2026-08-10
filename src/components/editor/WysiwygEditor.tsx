@@ -101,7 +101,7 @@ function placeCaretIn(el: HTMLElement, atEnd = true) {
   selection.addRange(range)
 }
 
-/** Convert `- `, `* `, `+ `, or `1. ` at the start of a block into a real list (Obsidian-style). */
+/** Convert `- `, `* `, `+ `, or `1. ` at the start of a block into a real list. */
 function tryConvertListMarker(surface: HTMLElement): boolean {
   const selection = window.getSelection()
   if (!selection || !selection.isCollapsed || selection.rangeCount === 0) return false

@@ -94,7 +94,7 @@ export function noteFromFile(
   content: string,
 ): NoteMeta {
   const parsed = parseNote(content)
-  // Title is always the filename (Obsidian-style), not the first H1.
+  // Title is always the filename, not the first H1.
   const title = noteTitleFromName(file.name)
   return {
     id: file.id,

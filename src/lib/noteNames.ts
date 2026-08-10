@@ -1,4 +1,4 @@
-/** Strip .md/.markdown for Obsidian-like display. Files stay markdown on disk. */
+/** Strip .md/.markdown for display. Files stay markdown on disk. */
 export function displayNoteName(name: string): string {
   return name.replace(/\.(md|markdown)$/i, '')
 }

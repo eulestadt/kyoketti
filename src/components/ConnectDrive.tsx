@@ -62,8 +62,8 @@ export function ConnectDrive() {
           <h1>Kyoketti</h1>
         </div>
         <p className="connect-tagline">
-          Your second brain on the web — Obsidian markdown notes in Google Drive, GitHub, or a local
-          folder (including iCloud Drive on Mac).
+          Your markdown notes on the web — Google Drive, GitHub, or a local folder
+          (including iCloud on Mac).
         </p>
 
         <div className="connect-auth">
@@ -119,13 +119,11 @@ export function ConnectDrive() {
         )}
 
         <button className="connect-demo-link" onClick={startDemo}>
-          Try a local demo vault
+          Try a demo vault
         </button>
 
         <p className="connect-legal">
-          Kyoketti is not affiliated with, endorsed by, or associated with Obsidian. But I am a huge lover of all that
-          they've done. I'm not a lawyer but whatever is required to communicate that Obsidian® is reserved by its
-          registered owner belong here.
+          Kyoketti is an independent project and is not affiliated with Obsidian.
         </p>
 
         {error && <p className="connect-error">{error}</p>}

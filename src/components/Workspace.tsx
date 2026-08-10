@@ -358,7 +358,7 @@ export function Workspace() {
               {local
                 ? 'Local mode reads and writes a folder on this device. If that folder is in iCloud Drive, Apple syncs it. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
                 : authProvider === 'github'
-                  ? 'GitHub mode stores notes as markdown in your repo. Each save creates a commit — compatible with Obsidian Git on desktop. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
+                  ? 'GitHub mode stores notes as markdown in your repo. Each save creates a commit. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
                   : 'Sign out ends this device session. Your vault folder stays linked to your Google account for the next sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'}
             </p>
           </div>

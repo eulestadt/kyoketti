@@ -40,7 +40,7 @@ This is a local demo vault. Link Google Drive from settings when you're ready to
 - Switch to graph view from the left ribbon
 - Press Ctrl/Cmd+O for the quick switcher
 
-> Markdown with [[wiki links]] feels like Obsidian.
+> Markdown with [[wiki links]] keeps related notes connected.
 `,
   },
   {

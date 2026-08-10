@@ -127,7 +127,7 @@ export async function listGithubRepos(
   return repos
 }
 
-const DEFAULT_GITIGNORE = `# Obsidian (keep notes, skip most app state)
+const DEFAULT_GITIGNORE = `# App state (keep notes; skip local workspace noise)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/graph.json
@@ -137,11 +137,11 @@ const DEFAULT_GITIGNORE = `# Obsidian (keep notes, skip most app state)
 
 const WELCOME_NOTE = `# Welcome
 
-This is a GitHub-backed Obsidian vault in Kyoketti.
+This is a GitHub-backed vault in Kyoketti.
 
 - Notes are markdown files in this private repository
 - Each save creates a Git commit
-- Use the same repo with the Obsidian Git plugin on desktop
+- You can clone the same repo in any markdown editor
 
 Happy writing.
 `
@@ -155,7 +155,7 @@ export async function createGithubVaultRepo(
     body: JSON.stringify({
       name,
       private: true,
-      description: 'Obsidian vault (Kyoketti)',
+      description: 'Markdown vault (Kyoketti)',
       auto_init: false,
       has_issues: false,
       has_projects: false,
@@ -169,7 +169,7 @@ export async function createGithubVaultRepo(
     repo.full_name,
     '.gitignore',
     DEFAULT_GITIGNORE,
-    'chore: add Obsidian-friendly .gitignore',
+    'chore: add vault .gitignore',
   )
   await putGithubFile(
     accessToken,

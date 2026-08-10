@@ -20,7 +20,7 @@ export function VaultPicker() {
   const [repos, setRepos] = useState<GithubRepo[]>([])
   const [searching, setSearching] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState(isGithub ? 'obsidian-vault' : 'Obsidian Vault')
+  const [newName, setNewName] = useState(isGithub ? 'kyoketti-vault' : 'Kyoketti Vault')
 
   const greeting = useMemo(() => session?.name?.split(' ')[0] ?? session?.email ?? 'there', [session])
 
@@ -88,7 +88,7 @@ export function VaultPicker() {
           .toLowerCase()
           .replace(/[^a-z0-9._-]+/g, '-')
           .replace(/^-+|-+$/g, '')
-        const repo = await createGithubVaultRepo(session.accessToken, repoName || 'obsidian-vault')
+        const repo = await createGithubVaultRepo(session.accessToken, repoName || 'kyoketti-vault')
         await setVault({ folderId: repo.full_name, folderName: repo.full_name })
       } else {
         const folder = await createFolder(session.accessToken, 'root', newName.trim())
@@ -120,7 +120,7 @@ export function VaultPicker() {
           <h1>Open a vault</h1>
           <p className="vault-sub">
             {isGithub
-              ? 'Choose a private GitHub repository to use as your markdown vault (Obsidian Git–compatible).'
+              ? 'Choose a private GitHub repository to use as your markdown vault.'
               : 'Choose a Google Drive folder to use as your markdown vault.'}
           </p>
         </div>
