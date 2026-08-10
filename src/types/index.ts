@@ -40,12 +40,15 @@ export type ViewMode = 'source' | 'wysiwyg' | 'live' | 'reading'
 export type RightPanel = 'backlinks' | 'outline' | 'tags' | null
 export type LeftPanel = 'files' | 'search' | 'graph'
 
+export type AuthProvider = 'google' | 'github'
+
 export type AuthSession = {
   accessToken: string
   expiresAt: number
   email?: string
   name?: string
   picture?: string
+  provider?: AuthProvider
 }
 
 export type VaultConfig = {

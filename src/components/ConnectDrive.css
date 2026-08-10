@@ -127,6 +127,13 @@
   display: block;
 }
 
+.github-mark {
+  width: 28px;
+  height: 28px;
+  display: block;
+  color: var(--text);
+}
+
 .local-mark {
   color: var(--accent);
 }

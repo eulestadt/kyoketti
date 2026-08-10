@@ -28,8 +28,19 @@ function GoogleMark() {
   )
 }
 
+function GithubMark() {
+  return (
+    <svg className="github-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12c0 4.64 3.01 8.57 7.19 9.96.53.1.72-.23.72-.51 0-.25-.01-.92-.01-1.8-2.93.64-3.55-1.41-3.55-1.41-.48-1.22-1.17-1.55-1.17-1.55-.96-.65.07-.64.07-.64 1.06.07 1.62 1.09 1.62 1.09.94 1.61 2.47 1.15 3.07.88.1-.68.37-1.15.67-1.41-2.34-.27-4.8-1.17-4.8-5.21 0-1.15.41-2.09 1.09-2.83-.11-.27-.47-1.36.1-2.83 0 0 .89-.28 2.91 1.08a10.1 10.1 0 0 1 2.65-.36c.9 0 1.81.12 2.65.36 2.02-1.36 2.91-1.08 2.91-1.08.57 1.47.21 2.56.1 2.83.68.74 1.09 1.68 1.09 2.83 0 4.05-2.47 4.94-4.82 5.2.38.33.72.97.72 1.96 0 1.41-.01 2.55-.01 2.9 0 .28.19.61.73.51A10.52 10.52 0 0 0 22.5 12c0-5.8-4.7-10.5-10.5-10.5z"
+      />
+    </svg>
+  )
+}
+
 export function ConnectDrive() {
-  const { connect, connectLocal, connecting, error, startDemo } = useApp()
+  const { connect, connectGithub, connectLocal, connecting, error, startDemo } = useApp()
   const { theme, toggleTheme } = useTheme()
   const localSupported = isLocalFolderSupported()
 
@@ -51,8 +62,8 @@ export function ConnectDrive() {
           <h1>Kyoketti</h1>
         </div>
         <p className="connect-tagline">
-          Your second brain on the web — Obsidian markdown notes in Google Drive or a local folder (including
-          iCloud Drive on Mac).
+          Your second brain on the web — Obsidian markdown notes in Google Drive, GitHub, or a local
+          folder (including iCloud Drive on Mac).
         </p>
 
         <div className="connect-auth">
@@ -66,6 +77,20 @@ export function ConnectDrive() {
             <span className="provider-btn-label">
               <span className="provider-btn-kicker">Continue with</span>
               <span>Google</span>
+            </span>
+          </button>
+
+          <button
+            className="provider-btn"
+            onClick={() => void connectGithub()}
+            disabled={connecting}
+            aria-label="Continue with GitHub"
+          >
+            {connecting ? <Loader2 className="spin" size={22} /> : <GithubMark />}
+            <span className="provider-btn-label">
+              <span className="provider-btn-kicker">Continue with</span>
+              <span>GitHub</span>
+              <span className="provider-btn-sub">Obsidian Git compatible</span>
             </span>
           </button>
 

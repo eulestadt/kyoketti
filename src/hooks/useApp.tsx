@@ -24,11 +24,22 @@ import {
 import {
   clearVaultServer,
   fetchDriveToken,
+  fetchGithubToken,
   fetchMe,
   logoutServer,
   saveVaultServer,
+  startGithubLogin,
   startGoogleLogin,
 } from '../lib/serverAuth'
+import {
+  githubCreateFolder,
+  githubCreateNote,
+  githubDelete,
+  githubRead,
+  githubRename,
+  githubWrite,
+  listGithubVaultTree,
+} from '../lib/githubVault'
 import {
   demoCreateFolder,
   demoCreateNote,
@@ -69,6 +80,7 @@ import {
   seedNoteContent,
 } from '../lib/noteNames'
 import type {
+  AuthProvider,
   AuthSession,
   LeftPanel,
   OpenTab,
@@ -114,6 +126,7 @@ type AppState = {
 
 type AppActions = {
   connect: () => Promise<void>
+  connectGithub: () => Promise<void>
   connectLocal: () => Promise<void>
   startDemo: () => void
   disconnect: () => void
@@ -133,6 +146,7 @@ type AppActions = {
   setRightPanel: (panel: RightPanel) => void
   openNoteByTitle: (title: string) => Promise<boolean>
   setError: (error: string | null) => void
+  authProvider: AuthProvider | null
 }
 
 const AppContext = createContext<(AppState & AppActions) | null>(null)
@@ -194,6 +208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const sessionRef = useRef(session)
   const indexRef = useRef(index)
   const treeRef = useRef(tree)
+  const vaultRef = useRef(vault)
 
   useEffect(() => {
     editorContentRef.current = editorContent
@@ -216,6 +231,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     treeRef.current = tree
   }, [tree])
+  useEffect(() => {
+    vaultRef.current = vault
+  }, [vault])
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeState(mode)
@@ -248,13 +266,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (current?.accessToken && current.expiresAt > Date.now() + 60_000) {
       return current.accessToken
     }
-    const tokens = await fetchDriveToken()
+    const provider = current?.provider ?? 'google'
+    const tokens = provider === 'github' ? await fetchGithubToken() : await fetchDriveToken()
     const next: AuthSession = {
       accessToken: tokens.accessToken,
       expiresAt: Date.now() + tokens.expiresIn * 1000,
       email: current?.email,
       name: current?.name,
       picture: current?.picture,
+      provider,
     }
     setSession(next)
     sessionRef.current = next
@@ -328,7 +348,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setDemo(false)
         setLocal(false)
         disableDemoMode()
-        const tokens = await fetchDriveToken()
+        const provider: AuthProvider = me.user.provider === 'github' ? 'github' : 'google'
+        const tokens = provider === 'github' ? await fetchGithubToken() : await fetchDriveToken()
         if (cancelled) return
         setSession({
           accessToken: tokens.accessToken,
@@ -336,15 +357,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           email: me.user.email ?? undefined,
           name: me.user.name ?? undefined,
           picture: me.user.picture ?? undefined,
+          provider,
         })
         if (me.vault) {
           localStorage.setItem(VAULT_KEY, JSON.stringify(me.vault))
           setVaultState({ folderId: me.vault.folderId, folderName: me.vault.folderName })
-          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'Google user'}`)
+          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'user'}`)
         } else {
           localStorage.removeItem(VAULT_KEY)
           setVaultState(null)
-          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'Google user'}`)
+          setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'user'}`)
         }
       } catch (err) {
         if (!cancelled) {
@@ -368,6 +390,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDemo(false)
     setLocal(false)
     startGoogleLogin(false)
+  }, [])
+
+  const connectGithub = useCallback(async () => {
+    setConnecting(true)
+    setError(null)
+    disableDemoMode()
+    await clearLocalVault()
+    setDemo(false)
+    setLocal(false)
+    startGithubLogin()
   }, [])
 
   const connectLocal = useCallback(async () => {
@@ -453,11 +485,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStatusMessage('Indexing vault…')
     try {
       const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
+      const github = !demo && !local && session?.provider === 'github'
       const { root, files } = demo
         ? demoListVault()
         : local
           ? await localListVault(vault.folderName)
-          : await listVaultTree(accessToken, vault.folderId, vault.folderName)
+          : github
+            ? await listGithubVaultTree(accessToken, vault.folderId, vault.folderName)
+            : await listVaultTree(accessToken, vault.folderId, vault.folderName)
       setTree(root)
       const paths = buildPaths(files, vault.folderId)
       const mdFiles = markdownFiles(files)
@@ -474,7 +509,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ? demoRead(file.id)
               : local
                 ? await localRead(file.id)
-                : await downloadTextFile(accessToken, file.id)
+                : github
+                  ? await githubRead(accessToken, vault.folderId, file.id)
+                  : await downloadTextFile(accessToken, file.id)
             contentCache.current.set(file.id, content)
             return { file, content }
           }),
@@ -565,11 +602,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         let note = liveIndex.notesById.get(fileId)
         if (content == null) {
           const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
+          const github = !demo && !local && session?.provider === 'github'
           content = demo
             ? demoRead(fileId)
             : local
               ? await localRead(fileId)
-              : await downloadTextFile(accessToken, fileId)
+              : github
+                ? await githubRead(accessToken, vault?.folderId ?? '', fileId)
+                : await downloadTextFile(accessToken, fileId)
           contentCache.current.set(fileId, content)
         }
         if (!note) {
@@ -613,7 +653,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : 'Failed to open file')
       }
     },
-    [session, demo, local, ensureDriveToken],
+    [session, demo, local, vault, ensureDriveToken],
   )
   const closeTab = useCallback(
     (fileId: string) => {
@@ -644,7 +684,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       else if (localRef.current) await localWrite(fileId, content)
       else {
         const accessToken = await ensureDriveToken()
-        await updateTextFile(accessToken, fileId, content)
+        if (sessionRef.current?.provider === 'github') {
+          const repoId = vaultRef.current?.folderId
+          if (!repoId) throw new Error('No GitHub vault selected')
+          await githubWrite(accessToken, repoId, fileId, content)
+        } else {
+          await updateTextFile(accessToken, fileId, content)
+        }
       }
       contentCache.current.set(fileId, content)
       const existing = index.notesById.get(fileId)
@@ -687,13 +733,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (parentId: string, name: string) => {
       const fileName = ensureMarkdownFileName(name)
       const content = seedNoteContent(fileName)
+      const github = !demo && !local && sessionRef.current?.provider === 'github'
       const file = demo
         ? demoCreateNote(parentId, fileName, content)
         : local
           ? await localCreateNote(parentId, fileName, content)
-          : await createMarkdownFile(await ensureDriveToken(), parentId, fileName, content)
+          : github
+            ? await githubCreateNote(
+                await ensureDriveToken(),
+                vaultRef.current!.folderId,
+                parentId,
+                fileName,
+                content,
+              )
+            : await createMarkdownFile(await ensureDriveToken(), parentId, fileName, content)
       const resolvedName = file.name || fileName
-      const pathHint = resolvedName
+      const pathHint =
+        github && file.id.includes(':')
+          ? file.id.slice(file.id.indexOf(':') + 1)
+          : resolvedName
       contentCache.current.set(file.id, content)
       setIndex((prev) =>
         upsertNote(
@@ -715,7 +773,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (parentId: string, name: string) => {
       if (demo) demoCreateFolder(parentId, name)
       else if (local) await localCreateFolder(parentId, name)
-      else await createFolder(await ensureDriveToken(), parentId, name)
+      else if (sessionRef.current?.provider === 'github') {
+        await githubCreateFolder(await ensureDriveToken(), vaultRef.current!.folderId, parentId, name)
+      } else await createFolder(await ensureDriveToken(), parentId, name)
       await refreshVault()
     },
     [demo, local, refreshVault, ensureDriveToken],
@@ -725,7 +785,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (id: string, name: string) => {
       if (demo) demoRename(id, name)
       else if (local) await localRename(id, name)
-      else await renameFile(await ensureDriveToken(), id, name)
+      else if (sessionRef.current?.provider === 'github') {
+        await githubRename(await ensureDriveToken(), vaultRef.current!.folderId, id, name)
+      } else await renameFile(await ensureDriveToken(), id, name)
       setTabs((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t
@@ -756,7 +818,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       if (demo) demoTrash(id)
       else if (local) await localTrash(id)
-      else await trashFile(await ensureDriveToken(), id)
+      else if (sessionRef.current?.provider === 'github') {
+        await githubDelete(await ensureDriveToken(), vaultRef.current!.folderId, id)
+      } else await trashFile(await ensureDriveToken(), id)
       contentCache.current.delete(id)
       setIndex((prev) => removeNote(prev, id))
       setTabs((prev) => prev.filter((t) => t.id !== id))
@@ -799,6 +863,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       error,
       statusMessage,
       connect,
+      connectGithub,
       connectLocal,
       startDemo,
       disconnect,
@@ -818,6 +883,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRightPanel,
       openNoteByTitle,
       setError,
+      authProvider: demo || local ? null : session?.provider ?? null,
     }),
     [
       bootstrapping,
@@ -839,6 +905,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       error,
       statusMessage,
       connect,
+      connectGithub,
       connectLocal,
       startDemo,
       disconnect,

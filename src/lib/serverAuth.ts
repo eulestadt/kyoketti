@@ -1,9 +1,12 @@
+export type AuthProvider = 'google' | 'github'
+
 export type MeResponse = {
   user: {
     id: string
     email: string | null
     name: string | null
     picture: string | null
+    provider: AuthProvider
   } | null
   vault: {
     folderId: string
@@ -50,6 +53,14 @@ export function fetchDriveToken(): Promise<{ accessToken: string; expiresIn: num
   return api('/api/auth/drive-token', { method: 'POST' })
 }
 
+export function fetchGithubToken(): Promise<{ accessToken: string; expiresIn: number }> {
+  return api('/api/auth/github-token', { method: 'POST' })
+}
+
 export function startGoogleLogin(forceConsent = false) {
   window.location.href = forceConsent ? '/api/auth/login?consent=1' : '/api/auth/login'
+}
+
+export function startGithubLogin() {
+  window.location.href = '/api/auth/github/login'
 }

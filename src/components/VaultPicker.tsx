@@ -1,25 +1,66 @@
-import { useMemo, useState } from 'react'
-import { FolderOpen, Loader2, Moon, Plus, Search, Sun } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { FolderOpen, Loader2, Lock, Moon, Plus, Search, Sun } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
 import { createFolder, searchFolders } from '../lib/googleDrive'
+import {
+  createGithubVaultRepo,
+  listGithubRepos,
+  type GithubRepo,
+} from '../lib/githubVault'
 import type { DriveFile } from '../types'
 import './VaultPicker.css'
 
 export function VaultPicker() {
-  const { session, setVault, disconnect, error, setError } = useApp()
+  const { session, setVault, disconnect, error, setError, authProvider } = useApp()
   const { theme, toggleTheme } = useTheme()
+  const isGithub = authProvider === 'github'
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<DriveFile[]>([])
+  const [repos, setRepos] = useState<GithubRepo[]>([])
   const [searching, setSearching] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState('Obsidian Vault')
+  const [newName, setNewName] = useState(isGithub ? 'obsidian-vault' : 'Obsidian Vault')
 
   const greeting = useMemo(() => session?.name?.split(' ')[0] ?? session?.email ?? 'there', [session])
+
+  useEffect(() => {
+    if (!isGithub || !session) return
+    let cancelled = false
+    async function loadRepos() {
+      setSearching(true)
+      setError(null)
+      try {
+        const list = await listGithubRepos(session!.accessToken)
+        if (!cancelled) setRepos(list)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to list repositories')
+      } finally {
+        if (!cancelled) setSearching(false)
+      }
+    }
+    void loadRepos()
+    return () => {
+      cancelled = true
+    }
+  }, [isGithub, session, setError])
 
   async function runSearch(value: string) {
     if (!session) return
     setQuery(value)
+    if (isGithub) {
+      setSearching(true)
+      setError(null)
+      try {
+        const list = await listGithubRepos(session.accessToken, value)
+        setRepos(list)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Repository search failed')
+      } finally {
+        setSearching(false)
+      }
+      return
+    }
     if (!value.trim()) {
       setResults([])
       return
@@ -41,14 +82,35 @@ export function VaultPicker() {
     setCreating(true)
     setError(null)
     try {
-      const folder = await createFolder(session.accessToken, 'root', newName.trim())
-      await setVault({ folderId: folder.id, folderName: folder.name })
+      if (isGithub) {
+        const repoName = newName
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9._-]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+        const repo = await createGithubVaultRepo(session.accessToken, repoName || 'obsidian-vault')
+        await setVault({ folderId: repo.full_name, folderName: repo.full_name })
+      } else {
+        const folder = await createFolder(session.accessToken, 'root', newName.trim())
+        await setVault({ folderId: folder.id, folderName: folder.name })
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create vault folder')
+      setError(err instanceof Error ? err.message : 'Could not create vault')
     } finally {
       setCreating(false)
     }
   }
+
+  const filteredRepos = useMemo(() => {
+    if (!isGithub) return []
+    const q = query.trim().toLowerCase()
+    if (!q) return repos
+    return repos.filter(
+      (r) =>
+        r.full_name.toLowerCase().includes(q) ||
+        (r.description ?? '').toLowerCase().includes(q),
+    )
+  }, [isGithub, repos, query])
 
   return (
     <div className="vault-screen">
@@ -56,7 +118,11 @@ export function VaultPicker() {
         <div>
           <p className="vault-kicker">Welcome, {greeting}</p>
           <h1>Open a vault</h1>
-          <p className="vault-sub">Choose a Google Drive folder to use as your markdown vault.</p>
+          <p className="vault-sub">
+            {isGithub
+              ? 'Choose a private GitHub repository to use as your markdown vault (Obsidian Git–compatible).'
+              : 'Choose a Google Drive folder to use as your markdown vault.'}
+          </p>
         </div>
         <div className="vault-header-actions">
           <button
@@ -74,13 +140,13 @@ export function VaultPicker() {
       </header>
 
       <section className="vault-create">
-        <h2>Create new vault</h2>
+        <h2>{isGithub ? 'Create private vault repo' : 'Create new vault'}</h2>
         <div className="vault-create-row">
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Vault name"
-            aria-label="New vault name"
+            placeholder={isGithub ? 'Repository name' : 'Vault name'}
+            aria-label={isGithub ? 'New repository name' : 'New vault name'}
           />
           <button onClick={() => void createVault()} disabled={creating}>
             {creating ? <Loader2 className="spin" size={16} /> : <Plus size={16} />}
@@ -90,29 +156,48 @@ export function VaultPicker() {
       </section>
 
       <section className="vault-search">
-        <h2>Open existing folder</h2>
+        <h2>{isGithub ? 'Open existing repository' : 'Open existing folder'}</h2>
         <label className="search-field">
           <Search size={16} />
           <input
             value={query}
             onChange={(e) => void runSearch(e.target.value)}
-            placeholder="Search Drive folders…"
-            aria-label="Search Drive folders"
+            placeholder={isGithub ? 'Filter repositories…' : 'Search Drive folders…'}
+            aria-label={isGithub ? 'Filter repositories' : 'Search Drive folders'}
           />
           {searching && <Loader2 className="spin" size={16} />}
         </label>
         <ul className="folder-results">
-          {results.map((folder) => (
-            <li key={folder.id}>
-              <button
-                onClick={() => void setVault({ folderId: folder.id, folderName: folder.name })}
-              >
-                <FolderOpen size={16} />
-                <span>{folder.name}</span>
-              </button>
-            </li>
-          ))}
-          {!searching && query && results.length === 0 && (
+          {isGithub
+            ? filteredRepos.map((repo) => (
+                <li key={repo.id}>
+                  <button
+                    onClick={() =>
+                      void setVault({ folderId: repo.full_name, folderName: repo.full_name })
+                    }
+                  >
+                    {repo.private ? <Lock size={16} /> : <FolderOpen size={16} />}
+                    <span>
+                      {repo.full_name}
+                      {repo.private ? '' : ' (public)'}
+                    </span>
+                  </button>
+                </li>
+              ))
+            : results.map((folder) => (
+                <li key={folder.id}>
+                  <button
+                    onClick={() => void setVault({ folderId: folder.id, folderName: folder.name })}
+                  >
+                    <FolderOpen size={16} />
+                    <span>{folder.name}</span>
+                  </button>
+                </li>
+              ))}
+          {!searching && isGithub && filteredRepos.length === 0 && (
+            <li className="empty">No repositories matched.</li>
+          )}
+          {!searching && !isGithub && query && results.length === 0 && (
             <li className="empty">No folders matched “{query}”.</li>
           )}
         </ul>

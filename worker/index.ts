@@ -20,6 +20,14 @@ import {
   toVault,
   upsertUserFromGoogle,
 } from './auth'
+import {
+  createGithubOauthState,
+  exchangeGithubCode,
+  fetchGithubProfile,
+  getGithubAccessToken,
+  githubAuthUrl,
+  upsertUserFromGithub,
+} from './githubAuth'
 
 async function requireUser(request: Request, env: Env) {
   const sessionId = readSessionId(request)
@@ -27,6 +35,13 @@ async function requireUser(request: Request, env: Env) {
   const user = await getUserBySession(env, sessionId)
   if (!user) return { error: json({ error: 'Unauthorized' }, { status: 401 }) }
   return { user, sessionId }
+}
+
+function requireGithubSecrets(env: Env): string | null {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+    return 'GitHub OAuth is not configured on this server'
+  }
+  return null
 }
 
 export default {
@@ -39,7 +54,10 @@ export default {
 
     try {
       if (url.pathname === '/api/health' && request.method === 'GET') {
-        return json({ ok: true })
+        return json({
+          ok: true,
+          githubConfigured: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        })
       }
 
       if ((url.pathname === '/api/auth/login') && (request.method === 'GET' || request.method === 'HEAD')) {
@@ -50,6 +68,23 @@ export default {
           status: 302,
           headers: {
             Location: googleAuthUrl(origin, state, env.GOOGLE_CLIENT_ID, forceConsent),
+            'Cache-Control': 'no-store',
+          },
+        })
+      }
+
+      if (
+        (url.pathname === '/api/auth/github/login') &&
+        (request.method === 'GET' || request.method === 'HEAD')
+      ) {
+        const missing = requireGithubSecrets(env)
+        if (missing) return json({ error: missing }, { status: 503 })
+        const origin = appOrigin(request, env)
+        const state = await createGithubOauthState(env)
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: githubAuthUrl(origin, state, env.GITHUB_CLIENT_ID),
             'Cache-Control': 'no-store',
           },
         })
@@ -89,6 +124,37 @@ export default {
         }
       }
 
+      if (url.pathname === '/api/auth/github/callback' && request.method === 'GET') {
+        const origin = appOrigin(request, env)
+        const code = url.searchParams.get('code')
+        const state = url.searchParams.get('state')
+        const oauthError = url.searchParams.get('error')
+        if (oauthError) {
+          return Response.redirect(`${origin}/?authError=${encodeURIComponent(oauthError)}`, 302)
+        }
+        if (!code || !state || !(await consumeOauthState(env, state))) {
+          return Response.redirect(`${origin}/?authError=invalid_state`, 302)
+        }
+
+        const token = await exchangeGithubCode(env, origin, code)
+        if (!token.access_token) {
+          const message = token.error_description || token.error || 'github_token_exchange_failed'
+          return Response.redirect(`${origin}/?authError=${encodeURIComponent(message)}`, 302)
+        }
+
+        try {
+          const profile = await fetchGithubProfile(token.access_token)
+          const user = await upsertUserFromGithub(env, profile, token.access_token)
+          const sessionId = await createSession(env, user.id)
+          const headers = new Headers({ Location: `${origin}/` })
+          headers.append('Set-Cookie', setSessionCookie(sessionId))
+          return new Response(null, { status: 302, headers })
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'github_login_failed'
+          return Response.redirect(`${origin}/?authError=${encodeURIComponent(message)}`, 302)
+        }
+      }
+
       if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
         const sessionId = readSessionId(request)
         if (sessionId) await destroySession(env, sessionId)
@@ -117,7 +183,20 @@ export default {
       if (url.pathname === '/api/auth/drive-token' && request.method === 'POST') {
         const auth = await requireUser(request, env)
         if ('error' in auth && auth.error) return auth.error
+        if (auth.user!.provider === 'github') {
+          return json({ error: 'Not a Google session' }, { status: 400 })
+        }
         const tokens = await getDriveAccessToken(env, auth.user!)
+        return json(tokens)
+      }
+
+      if (url.pathname === '/api/auth/github-token' && request.method === 'POST') {
+        const auth = await requireUser(request, env)
+        if ('error' in auth && auth.error) return auth.error
+        if (auth.user!.provider !== 'github') {
+          return json({ error: 'Not a GitHub session' }, { status: 400 })
+        }
+        const tokens = await getGithubAccessToken(env, auth.user!)
         return json(tokens)
       }
 

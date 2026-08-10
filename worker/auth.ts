@@ -46,6 +46,7 @@ export function toPublicUser(user: UserRow): PublicUser {
     email: user.email,
     name: user.name,
     picture: user.picture,
+    provider: user.provider === 'github' ? 'github' : 'google',
   }
 }
 
@@ -193,8 +194,8 @@ export async function upsertUserFromGoogle(
     }
     const enc = await encryptSecret(refreshToken, env.SESSION_SECRET)
     await env.DB.prepare(
-      `INSERT INTO users (id, email, name, picture, refresh_token_enc, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, email, name, picture, refresh_token_enc, provider, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'google', ?, ?)`,
     )
       .bind(profile.sub, profile.email ?? null, profile.name ?? null, profile.picture ?? null, enc, now, now)
       .run()
@@ -203,7 +204,7 @@ export async function upsertUserFromGoogle(
       ? await encryptSecret(refreshToken, env.SESSION_SECRET)
       : existing.refresh_token_enc
     await env.DB.prepare(
-      `UPDATE users SET email = ?, name = ?, picture = ?, refresh_token_enc = ?, updated_at = ?
+      `UPDATE users SET email = ?, name = ?, picture = ?, refresh_token_enc = ?, provider = 'google', updated_at = ?
        WHERE id = ?`,
     )
       .bind(profile.email ?? null, profile.name ?? null, profile.picture ?? null, enc, now, profile.sub)
