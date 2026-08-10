@@ -62,7 +62,7 @@ export function ConnectDrive() {
           <h1>Kyoketti</h1>
         </div>
         <p className="connect-tagline">
-          Your markdown notes on the web — Google Drive, GitHub, or a local folder
+          Your Obsidian.md notes on the web — Google Drive, GitHub, or a local folder
           (including iCloud on Mac).
         </p>
 

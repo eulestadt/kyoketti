@@ -155,7 +155,7 @@ export async function createGithubVaultRepo(
     body: JSON.stringify({
       name,
       private: true,
-      description: 'Markdown vault (Kyoketti)',
+      description: 'Obsidian Vault (Kyoketti)',
       auto_init: false,
       has_issues: false,
       has_projects: false,
