@@ -53,12 +53,13 @@ export function MarkdownEditor() {
 
   if (viewMode === 'reading') {
     return (
-      <div
-        key={activeFileId}
-        className="reading-view markdown-preview"
-        onClick={(e) => void handlePreviewClick(e)}
-        dangerouslySetInnerHTML={{ __html: previewHtml }}
-      />
+      <div key={activeFileId} className="reading-scroll">
+        <div
+          className="reading-view markdown-preview"
+          onClick={(e) => void handlePreviewClick(e)}
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      </div>
     )
   }
 

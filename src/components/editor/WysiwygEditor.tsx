@@ -462,20 +462,22 @@ export function WysiwygEditor() {
           <ChevronDown size={15} />
         </button>
       )}
-      <div
-        ref={surfaceRef}
-        className="wysiwyg-surface markdown-preview"
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        aria-label="WYSIWYG editor"
-        spellCheck
-        onInput={syncFromDom}
-        onBlur={syncFromDom}
-        onKeyDown={handleKeyDown}
-        onClick={(e) => void handleClick(e)}
-      />
+      <div className="wysiwyg-scroll">
+        <div
+          ref={surfaceRef}
+          className="wysiwyg-surface markdown-preview"
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          aria-label="WYSIWYG editor"
+          spellCheck
+          onInput={syncFromDom}
+          onBlur={syncFromDom}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => void handleClick(e)}
+        />
+      </div>
     </div>
   )
 }
