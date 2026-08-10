@@ -154,12 +154,17 @@ export function renderMarkdownToHtml(
         .filter(Boolean)
       return `<blockquote>${lines.map((line) => `<p>${line}</p>`).join('')}</blockquote>\n`
     })
-    .replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>')
+    // Unordered lists: -, *, or + (CommonMark / Obsidian)
+    .replace(/^\s*[-*+]\s+(.+)$/gm, '<li>$1</li>')
     .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ordered">$1</li>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2" />')
+    // Images before links; allow data: URLs and query strings
+    .replace(/!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt: string, rawSrc: string) => {
+      const src = rawSrc.startsWith('<') && rawSrc.endsWith('>') ? rawSrc.slice(1, -1) : rawSrc
+      return `<img alt="${escapeHtml(alt)}" src="${escapeHtml(src)}" loading="lazy" />`
+    })
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
     .replace(/^-{3,}$/gm, '<hr />')
 
@@ -175,7 +180,7 @@ export function renderMarkdownToHtml(
     .map((para) => {
       const trimmed = para.trim()
       if (!trimmed) return ''
-      if (/^<(h[1-6]|ul|ol|li|blockquote|pre|hr|div|table)/.test(trimmed)) return trimmed
+      if (/^<(h[1-6]|ul|ol|li|blockquote|pre|hr|div|table|img)/.test(trimmed)) return trimmed
       return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`
     })
     .join('\n')

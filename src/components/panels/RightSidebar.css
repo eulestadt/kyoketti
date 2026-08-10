@@ -1,5 +1,6 @@
 .right-sidebar {
   width: 260px;
+  max-width: 40vw;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   background: var(--bg-sidebar);
@@ -8,6 +9,7 @@
   min-width: 0;
   position: relative;
   z-index: 2;
+  overflow: hidden;
 }
 
 .right-tabs {
@@ -23,6 +25,10 @@
   padding: 0.55rem 0.2rem;
   font-size: 0.78rem;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .right-tabs button.active {

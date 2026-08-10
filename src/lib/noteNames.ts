@@ -3,7 +3,14 @@ export function displayNoteName(name: string): string {
   return name.replace(/\.(md|markdown)$/i, '')
 }
 
-/** Ensure markdown files keep an extension when renaming from the UI. */
+/** Canonical note title = filename without extension. */
+export function noteTitleFromFileName(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return 'Untitled'
+  return displayNoteName(trimmed) || 'Untitled'
+}
+
+/** Ensure markdown files keep an extension when creating/renaming from the UI. */
 export function ensureMarkdownFileName(name: string, previousName?: string): string {
   const trimmed = name.trim()
   if (!trimmed) return previousName ?? 'Untitled.md'
@@ -16,4 +23,9 @@ export function ensureMarkdownFileName(name: string, previousName?: string): str
     return `${trimmed}.md`
   }
   return trimmed
+}
+
+/** Seed body for a new note: one H1 matching the filename title. */
+export function seedNoteContent(fileName: string): string {
+  return `# ${noteTitleFromFileName(fileName)}\n\n`
 }

@@ -101,6 +101,44 @@ function placeCaretIn(el: HTMLElement, atEnd = true) {
   selection.addRange(range)
 }
 
+/** Convert `- `, `* `, `+ `, or `1. ` at the start of a block into a real list (Obsidian-style). */
+function tryConvertListMarker(surface: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || !selection.isCollapsed || selection.rangeCount === 0) return false
+  const anchor = selection.anchorNode
+  if (!anchor) return false
+  const el = anchor instanceof Element ? anchor : anchor.parentElement
+  if (!el || !surface.contains(el)) return false
+  if (el.closest('li, pre, code, blockquote')) return false
+
+  const block = el.closest('p, div, h1, h2, h3, h4, h5, h6') as HTMLElement | null
+  if (!block || !surface.contains(block)) return false
+
+  const range = selection.getRangeAt(0)
+  const preRange = document.createRange()
+  preRange.selectNodeContents(block)
+  preRange.setEnd(range.startContainer, range.startOffset)
+  const before = preRange.toString().replace(/\u00a0/g, ' ')
+
+  const bullet = /^([-*+])$/.exec(before.trim())
+  const ordered = /^(\d+)\.$/.exec(before.trim())
+  if (!bullet && !ordered) return false
+
+  const afterRange = document.createRange()
+  afterRange.selectNodeContents(block)
+  afterRange.setStart(range.startContainer, range.startOffset)
+  const after = afterRange.toString().replace(/\u00a0/g, ' ')
+
+  const list = document.createElement(bullet ? 'ul' : 'ol')
+  const li = document.createElement('li')
+  if (after.trim()) li.textContent = after
+  else li.innerHTML = '<br>'
+  list.appendChild(li)
+  block.replaceWith(list)
+  placeCaretIn(li, !after.trim())
+  return true
+}
+
 function indentListItem(li: HTMLElement) {
   const prev = li.previousElementSibling as HTMLElement | null
   if (!prev || prev.tagName.toLowerCase() !== 'li') return false
@@ -273,6 +311,15 @@ export function WysiwygEditor() {
       else indentSelection()
       syncFromDom()
       return
+    }
+
+    // Markdown list markers: -, *, + or 1. then Space → real list
+    if (key === ' ' && !mod && surfaceRef.current) {
+      if (tryConvertListMarker(surfaceRef.current)) {
+        e.preventDefault()
+        syncFromDom()
+        return
+      }
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {

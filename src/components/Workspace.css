@@ -140,7 +140,7 @@
 .tab-bar {
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
+  justify-content: flex-start;
   border-bottom: 1px solid var(--border);
   background: var(--bg-tabs);
   min-height: 38px;
@@ -150,15 +150,22 @@
 
 .tabs {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+  overscroll-behavior-x: contain;
 }
 
 .tabs::-webkit-scrollbar {
-  height: 4px;
+  height: 6px;
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 999px;
 }
 
 .tab {
@@ -166,7 +173,7 @@
   align-items: center;
   gap: 0.35rem;
   flex: 0 0 auto;
-  max-width: min(200px, 28vw);
+  max-width: min(180px, 36vw);
   padding: 0.45rem 0.55rem 0.45rem 0.8rem;
   border-right: 1px solid var(--border);
   color: var(--text-muted);
@@ -194,16 +201,19 @@
   font-size: 1rem;
   line-height: 1;
   opacity: 0.6;
+  flex-shrink: 0;
 }
 
 .view-modes {
   display: flex;
+  flex: 0 0 auto;
   flex-shrink: 0;
   align-items: center;
   gap: 0.15rem;
   padding: 0 0.4rem;
   border-left: 1px solid var(--border);
   background: var(--bg-tabs);
+  z-index: 1;
 }
 
 .editor-stage {

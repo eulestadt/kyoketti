@@ -40,8 +40,8 @@ export function FileTree() {
 
   async function onCreateNote(parentId: string) {
     const name = window.prompt('New note name', 'Untitled')
-    if (!name) return
-    await createNote(parentId, name)
+    if (!name?.trim()) return
+    await createNote(parentId, ensureMarkdownFileName(name))
   }
 
   async function onCreateFolder(parentId: string) {

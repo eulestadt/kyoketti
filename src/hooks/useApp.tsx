@@ -63,6 +63,11 @@ import {
   upsertNote,
   type VaultIndex,
 } from '../lib/vaultIndex'
+import {
+  ensureMarkdownFileName,
+  noteTitleFromFileName,
+  seedNoteContent,
+} from '../lib/noteNames'
 import type {
   AuthSession,
   LeftPanel,
@@ -74,6 +79,17 @@ import type {
 } from '../types'
 
 const VAULT_KEY = 'kyoketti.vault'
+const VIEW_MODE_KEY = 'kyoketti.viewMode'
+
+function loadViewMode(): ViewMode {
+  try {
+    const raw = localStorage.getItem(VIEW_MODE_KEY)
+    if (raw === 'source' || raw === 'live' || raw === 'wysiwyg' || raw === 'reading') return raw
+  } catch {
+    /* ignore */
+  }
+  return 'wysiwyg'
+}
 
 type AppState = {
   bootstrapping: boolean
@@ -104,7 +120,7 @@ type AppActions = {
   setVault: (vault: VaultConfig) => Promise<void>
   clearVault: () => void
   refreshVault: () => Promise<void>
-  openFile: (fileId: string) => Promise<void>
+  openFile: (fileId: string, hint?: { name?: string; path?: string }) => Promise<void>
   closeTab: (fileId: string) => void
   setEditorContent: (content: string) => void
   saveActiveFile: () => Promise<void>
@@ -163,7 +179,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeFileId, setActiveFileId] = useState<string | null>(null)
   const [tabs, setTabs] = useState<OpenTab[]>([])
   const [editorContent, setEditorContentState] = useState('')
-  const [viewMode, setViewMode] = useState<ViewMode>('live')
+  const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode)
   const [leftPanel, setLeftPanel] = useState<LeftPanel>('files')
   const [rightPanel, setRightPanel] = useState<RightPanel>('backlinks')
   const [saveStatus, setSaveStatus] = useState<AppState['saveStatus']>('saved')
@@ -176,6 +192,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const demoRef = useRef(demo)
   const localRef = useRef(local)
   const sessionRef = useRef(session)
+  const indexRef = useRef(index)
+  const treeRef = useRef(tree)
 
   useEffect(() => {
     editorContentRef.current = editorContent
@@ -192,6 +210,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     sessionRef.current = session
   }, [session])
+  useEffect(() => {
+    indexRef.current = index
+  }, [index])
+  useEffect(() => {
+    treeRef.current = tree
+  }, [tree])
+
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeState(mode)
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  // Keep open tabs' labels in sync with the vault index (filename = title).
+  useEffect(() => {
+    setTabs((prev) => {
+      let changed = false
+      const next = prev.map((tab) => {
+        const note = index.notesById.get(tab.id)
+        if (!note) return tab
+        if (note.name === tab.name && note.path === tab.path) return tab
+        changed = true
+        return { ...tab, name: note.name, path: note.path }
+      })
+      return changed ? next : prev
+    })
+  }, [index])
 
   const ensureDriveToken = useCallback(async (): Promise<string> => {
     if (demoRef.current) return 'demo'
@@ -503,7 +551,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [session, vault, demo, local, refreshVault, bootstrapping])
 
   const openFile = useCallback(
-    async (fileId: string) => {
+    async (fileId: string, hint?: { name?: string; path?: string }) => {
       if (!demo && !local && !session) return
       setError(null)
       try {
@@ -512,7 +560,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           contentCache.current.set(currentId, editorContentRef.current)
         }
         let content = contentCache.current.get(fileId)
-        let note = index.notesById.get(fileId)
+        const liveIndex = indexRef.current
+        const liveTree = treeRef.current
+        let note = liveIndex.notesById.get(fileId)
         if (content == null) {
           const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
           content = demo
@@ -523,22 +573,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
           contentCache.current.set(fileId, content)
         }
         if (!note) {
+          const fallbackName =
+            hint?.name ?? treeFindName(liveTree, fileId) ?? 'Untitled.md'
+          const fallbackPath =
+            hint?.path ?? treeFindPath(liveTree, fileId) ?? fallbackName
           note = {
             id: fileId,
-            name: treeFindName(tree, fileId) ?? 'Untitled.md',
-            path: treeFindPath(tree, fileId) ?? 'Untitled.md',
-            title: (treeFindName(tree, fileId) ?? 'Untitled').replace(/\.md$/i, ''),
+            name: fallbackName,
+            path: fallbackPath,
+            title: noteTitleFromFileName(fallbackName),
             content,
             frontmatter: {},
             tags: [],
             links: [],
+          }
+        } else if (hint?.name && hint.name !== note.name) {
+          note = {
+            ...note,
+            name: hint.name,
+            path: hint.path ?? note.path,
+            title: noteTitleFromFileName(hint.name),
           }
         }
         setActiveFileId(fileId)
         setEditorContentState(content)
         setSaveStatus('saved')
         setTabs((prev) => {
-          if (prev.some((t) => t.id === fileId)) return prev
+          const existing = prev.find((t) => t.id === fileId)
+          if (existing) {
+            if (existing.name === note!.name && existing.path === note!.path) return prev
+            return prev.map((t) =>
+              t.id === fileId ? { ...t, name: note!.name, path: note!.path } : t,
+            )
+          }
           return [...prev, { id: fileId, path: note!.path, name: note!.name, dirty: false }]
         })
         setStatusMessage(note.path)
@@ -546,7 +613,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setError(err instanceof Error ? err.message : 'Failed to open file')
       }
     },
-    [session, demo, local, index.notesById, tree, ensureDriveToken],
+    [session, demo, local, ensureDriveToken],
   )
   const closeTab = useCallback(
     (fileId: string) => {
@@ -618,15 +685,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createNote = useCallback(
     async (parentId: string, name: string) => {
-      const content = `# ${name.replace(/\.md$/i, '')}\n\n`
+      const fileName = ensureMarkdownFileName(name)
+      const content = seedNoteContent(fileName)
       const file = demo
-        ? demoCreateNote(parentId, name, content)
+        ? demoCreateNote(parentId, fileName, content)
         : local
-          ? await localCreateNote(parentId, name, content)
-          : await createMarkdownFile(await ensureDriveToken(), parentId, name, content)
+          ? await localCreateNote(parentId, fileName, content)
+          : await createMarkdownFile(await ensureDriveToken(), parentId, fileName, content)
+      const resolvedName = file.name || fileName
+      const pathHint = resolvedName
       contentCache.current.set(file.id, content)
-      await refreshVault()
-      await openFile(file.id)
+      setIndex((prev) =>
+        upsertNote(
+          prev,
+          noteFromFile(
+            { ...file, name: resolvedName },
+            pathHint,
+            content,
+          ),
+        ),
+      )
+      await openFile(file.id, { name: resolvedName, path: pathHint })
+      void refreshVault()
     },
     [demo, local, refreshVault, openFile, ensureDriveToken],
   )
@@ -646,6 +726,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (demo) demoRename(id, name)
       else if (local) await localRename(id, name)
       else await renameFile(await ensureDriveToken(), id, name)
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const nextPath = t.path.includes('/')
+            ? `${t.path.slice(0, t.path.lastIndexOf('/') + 1)}${name}`
+            : name
+          return { ...t, name, path: nextPath }
+        }),
+      )
+      setIndex((prev) => {
+        const existing = prev.notesById.get(id)
+        if (!existing) return prev
+        return upsertNote(prev, {
+          ...existing,
+          name,
+          title: noteTitleFromFileName(name),
+          path: existing.path.includes('/')
+            ? `${existing.path.slice(0, existing.path.lastIndexOf('/') + 1)}${name}`
+            : name,
+        })
+      })
       await refreshVault()
     },
     [demo, local, refreshVault, ensureDriveToken],

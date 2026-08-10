@@ -68,10 +68,26 @@ export function Workspace() {
   const [pureMode, setPureMode] = useState(loadPureMode)
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement))
   const activeTabRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
   }, [activeFileId])
+
+  useEffect(() => {
+    const el = tabsRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent) {
+      if (!el) return
+      // Convert vertical wheel / trackpad into horizontal tab scrolling.
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) {
+        e.preventDefault()
+        el.scrollLeft += e.deltaY
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   function togglePureMode(next?: boolean) {
     setPureMode((prev) => {
@@ -213,7 +229,7 @@ export function Workspace() {
           <>
             {!pureMode && (
               <div className="tab-bar">
-                <div className="tabs">
+                <div className="tabs" ref={tabsRef}>
                   {tabs.map((tab) => (
                     <div
                       key={tab.id}
