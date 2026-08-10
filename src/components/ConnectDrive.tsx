@@ -90,7 +90,6 @@ export function ConnectDrive() {
             <span className="provider-btn-label">
               <span className="provider-btn-kicker">Continue with</span>
               <span>GitHub</span>
-              <span className="provider-btn-sub">Obsidian Git compatible</span>
             </span>
           </button>
 
@@ -109,7 +108,6 @@ export function ConnectDrive() {
             <span className="provider-btn-label">
               <span className="provider-btn-kicker">Continue with</span>
               <span>Local</span>
-              <span className="provider-btn-sub">iCloud compatible</span>
             </span>
           </button>
         </div>
