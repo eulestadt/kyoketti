@@ -215,6 +215,15 @@ function isMarkdownName(name: string): boolean {
   return /\.(md|markdown)$/i.test(name)
 }
 
+function isVaultTextName(name: string): boolean {
+  return isMarkdownName(name) || /\.base$/i.test(name)
+}
+
+function mimeForVaultFile(name: string): string {
+  if (/\.base$/i.test(name)) return 'application/x-obsidian-base'
+  return 'text/markdown'
+}
+
 function shouldSkipDir(name: string): boolean {
   return name === '.obsidian' || name === '.git' || name === 'node_modules' || name.startsWith('.')
 }
@@ -271,30 +280,34 @@ export async function localListVault(folderName: string): Promise<{ root: VaultN
           parents: [parentId],
           modifiedTime: new Date().toISOString(),
         })
-      } else if (handle.kind === 'file' && isMarkdownName(name)) {
+      } else if (handle.kind === 'file' && isVaultTextName(name)) {
         const relPath = parentPath ? `${parentPath}/${name}` : name
         const id = ensureIdForPath(relPath)
         let modifiedTime = new Date().toISOString()
+        let size: string | undefined
         try {
           const file = await (handle as FileSystemFileHandle).getFile()
           modifiedTime = new Date(file.lastModified).toISOString()
+          size = String(file.size)
         } catch {
           /* ignore */
         }
+        const mimeType = mimeForVaultFile(name)
         children.push({
           id,
           name,
           path: relPath,
-          mimeType: 'text/markdown',
+          mimeType,
           isFolder: false,
           parentId,
         })
         files.push({
           id,
           name,
-          mimeType: 'text/markdown',
+          mimeType,
           parents: [parentId],
           modifiedTime,
+          size,
         })
       }
     }
@@ -336,14 +349,18 @@ export async function localWrite(id: string, content: string): Promise<void> {
 export async function localCreateNote(parentId: string, name: string, content: string): Promise<DriveFile> {
   const parentPath = pathOf(parentId)
   const parent = await resolveDirectory(parentPath)
-  const fileName = name.endsWith('.md') ? name : `${name}.md`
+  const fileName = /\.base$/i.test(name)
+    ? name
+    : name.endsWith('.md')
+      ? name
+      : `${name}.md`
   const fileHandle = await parent.getFileHandle(fileName, { create: true })
   const writable = await fileHandle.createWritable()
   await writable.write(content)
   await writable.close()
   const relPath = parentPath ? `${parentPath}/${fileName}` : fileName
   const id = ensureIdForPath(relPath)
-  return { id, name: fileName, mimeType: 'text/markdown', parents: [parentId] }
+  return { id, name: fileName, mimeType: mimeForVaultFile(fileName), parents: [parentId] }
 }
 
 export async function localCreateFolder(parentId: string, name: string): Promise<DriveFile> {

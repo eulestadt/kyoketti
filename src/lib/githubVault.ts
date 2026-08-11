@@ -236,7 +236,11 @@ export async function listGithubVaultTree(
     files.push({
       id: pathId(repoId, entry.path),
       name,
-      mimeType: /\.(md|markdown)$/i.test(name) ? MD_MIME : 'application/octet-stream',
+      mimeType: /\.(md|markdown)$/i.test(name)
+        ? MD_MIME
+        : /\.base$/i.test(name)
+          ? 'application/x-obsidian-base'
+          : 'application/octet-stream',
       parents: [parentId || repoId],
       modifiedTime: undefined,
       size: entry.size != null ? String(entry.size) : undefined,
@@ -364,7 +368,11 @@ async function putGithubFile(
   return {
     id: pathId(repoId, path),
     name: result.content.name,
-    mimeType: /\.(md|markdown)$/i.test(result.content.name) ? MD_MIME : 'application/octet-stream',
+    mimeType: /\.(md|markdown)$/i.test(result.content.name)
+      ? MD_MIME
+      : /\.base$/i.test(result.content.name)
+        ? 'application/x-obsidian-base'
+        : 'application/octet-stream',
     parents: [parentPath ? pathId(repoId, parentPath) : repoId],
     size: result.content.size != null ? String(result.content.size) : undefined,
   }
@@ -398,7 +406,11 @@ export async function githubCreateNote(
   content: string,
 ): Promise<DriveFile> {
   const parentPath = parsePathId(parentId, repoId)
-  const fileName = name.endsWith('.md') ? name : `${name}.md`
+  const fileName = /\.base$/i.test(name)
+    ? name
+    : name.endsWith('.md')
+      ? name
+      : `${name}.md`
   const path = parentPath ? `${parentPath}/${fileName}` : fileName
   return putGithubFile(accessToken, repoId, path, content, `docs: create ${path}`)
 }

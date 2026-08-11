@@ -1,6 +1,6 @@
 import type { DriveFile, VaultNode } from '../types'
 
-const DEMO_KEY = 'kyoketti.demo.files'
+const DEMO_KEY = 'kyoketti.demo.files.v2'
 
 export type DemoFile = {
   id: string
@@ -39,6 +39,7 @@ This is a local demo vault. Link Google Drive from settings when you're ready to
 - Follow a tag like #welcome
 - Switch to graph view from the left ribbon
 - Press Ctrl/Cmd+O for the quick switcher
+- Open [[Vault Overview]] for an Obsidian Bases table of your notes
 
 > Markdown with [[wiki links]] keeps related notes connected.
 `,
@@ -65,11 +66,58 @@ Linked from [[Welcome]].
     mimeType: 'text/markdown',
     parentId: 'demo-root',
     modifiedTime: new Date().toISOString(),
-    content: `# Projects
+    content: `---
+status: active
+area: product
+---
+
+# Projects
 
 - Build Kyoketti
 - Keep notes in Drive
 - See also [[Welcome]]
+- Open [[Vault Overview.base]] for a Bases table of notes
+`,
+  },
+  {
+    id: 'demo-base',
+    name: 'Vault Overview.base',
+    mimeType: 'application/x-obsidian-base',
+    parentId: 'demo-root',
+    modifiedTime: new Date().toISOString(),
+    content: `filters:
+  and:
+    - 'file.ext == "md"'
+formulas:
+  updated: 'file.mtime.relative()'
+properties:
+  file.name:
+    displayName: Name
+  file.mtime:
+    displayName: Modified
+  formula.updated:
+    displayName: Updated
+  status:
+    displayName: Status
+views:
+  - type: table
+    name: Table
+    order:
+      - file.name
+      - status
+      - formula.updated
+      - file.size
+  - type: list
+    name: List
+    order:
+      - file.name
+      - status
+  - type: cards
+    name: Cards
+    order:
+      - file.name
+      - status
+      - formula.updated
 `,
   },
 ]
@@ -149,18 +197,23 @@ export function demoWrite(id: string, content: string) {
 
 export function demoCreateNote(parentId: string, name: string, content: string): DriveFile {
   const id = `demo-${crypto.randomUUID()}`
-  const fileName = name.endsWith('.md') ? name : `${name}.md`
+  const fileName = /\.base$/i.test(name)
+    ? name
+    : name.endsWith('.md')
+      ? name
+      : `${name}.md`
+  const mimeType = /\.base$/i.test(fileName) ? 'application/x-obsidian-base' : 'text/markdown'
   const files = loadFiles()
   files.push({
     id,
     name: fileName,
-    mimeType: 'text/markdown',
+    mimeType,
     parentId,
     content,
     modifiedTime: new Date().toISOString(),
   })
   saveFiles(files)
-  return { id, name: fileName, mimeType: 'text/markdown', parents: [parentId] }
+  return { id, name: fileName, mimeType, parents: [parentId] }
 }
 
 export function demoCreateFolder(parentId: string, name: string): DriveFile {

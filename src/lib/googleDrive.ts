@@ -254,3 +254,56 @@ export function isMarkdownFile(file: Pick<DriveFile, 'name' | 'mimeType'>): bool
     file.mimeType === 'text/x-markdown'
   )
 }
+
+export function isBaseFile(file: Pick<DriveFile, 'name' | 'mimeType'>): boolean {
+  return (
+    file.name.toLowerCase().endsWith('.base') ||
+    file.mimeType === 'application/x-obsidian-base'
+  )
+}
+
+/** Markdown notes + Obsidian Bases configs indexed as vault text. */
+export function isVaultTextFile(file: Pick<DriveFile, 'name' | 'mimeType'>): boolean {
+  return isMarkdownFile(file) || isBaseFile(file)
+}
+
+export async function createTextFile(
+  accessToken: string,
+  parentId: string,
+  name: string,
+  content = '',
+  mimeType = 'text/plain',
+): Promise<DriveFile> {
+  const boundary = 'kyoketti_boundary'
+  const meta = JSON.stringify({
+    name,
+    mimeType,
+    parents: [parentId],
+  })
+  const body = [
+    `--${boundary}`,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    meta,
+    `--${boundary}`,
+    `Content-Type: ${mimeType}; charset=UTF-8`,
+    '',
+    content,
+    `--${boundary}--`,
+    '',
+  ].join('\r\n')
+
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,parents,modifiedTime,size',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  )
+  if (!res.ok) throw new DriveError(await res.text(), res.status)
+  return res.json() as Promise<DriveFile>
+}

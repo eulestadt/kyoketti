@@ -15,6 +15,7 @@ import {
 import {
   createFolder,
   createMarkdownFile,
+  createTextFile,
   downloadTextFile,
   listVaultTree,
   renameFile,
@@ -68,10 +69,10 @@ import {
 import {
   buildPaths,
   createEmptyIndex,
-  markdownFiles,
   noteFromFile,
   removeNote,
   upsertNote,
+  vaultTextFiles,
   type VaultIndex,
 } from '../lib/vaultIndex'
 import {
@@ -79,6 +80,7 @@ import {
   noteTitleFromFileName,
   seedNoteContent,
 } from '../lib/noteNames'
+import { defaultBaseContent, ensureBaseFileName } from '../lib/bases'
 import type {
   AuthProvider,
   AuthSession,
@@ -138,9 +140,11 @@ type AppActions = {
   setEditorContent: (content: string) => void
   saveActiveFile: () => Promise<void>
   createNote: (parentId: string, name: string) => Promise<void>
+  createBase: (parentId: string, name: string) => Promise<void>
   createDirectory: (parentId: string, name: string) => Promise<void>
   renameNode: (id: string, name: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
+  writeFileContent: (fileId: string, content: string) => Promise<void>
   setViewMode: (mode: ViewMode) => void
   setLeftPanel: (panel: LeftPanel) => void
   setRightPanel: (panel: RightPanel) => void
@@ -495,11 +499,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : await listVaultTree(accessToken, vault.folderId, vault.folderName)
       setTree(root)
       const paths = buildPaths(files, vault.folderId)
-      const mdFiles = markdownFiles(files)
+      const textFiles = vaultTextFiles(files)
       let nextIndex = createEmptyIndex()
       const batchSize = 8
-      for (let i = 0; i < mdFiles.length; i += batchSize) {
-        const batch = mdFiles.slice(i, i + batchSize)
+      for (let i = 0; i < textFiles.length; i += batchSize) {
+        const batch = textFiles.slice(i, i + batchSize)
         const contents = await Promise.all(
           batch.map(async (file) => {
             if (contentCache.current.has(file.id)) {
@@ -521,7 +525,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       setIndex(nextIndex)
-      setStatusMessage(`${mdFiles.length} notes indexed`)
+      const noteCount = textFiles.filter((f) => !/\.base$/i.test(f.name)).length
+      const baseCount = textFiles.length - noteCount
+      setStatusMessage(
+        baseCount > 0
+          ? `${noteCount} notes · ${baseCount} bases indexed`
+          : `${noteCount} notes indexed`,
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load vault'
       setError(message)
@@ -769,6 +779,89 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [demo, local, refreshVault, openFile, ensureDriveToken],
   )
 
+  const createBase = useCallback(
+    async (parentId: string, name: string) => {
+      const fileName = ensureBaseFileName(name)
+      const content = defaultBaseContent()
+      const github = !demo && !local && sessionRef.current?.provider === 'github'
+      const file = demo
+        ? demoCreateNote(parentId, fileName, content)
+        : local
+          ? await localCreateNote(parentId, fileName, content)
+          : github
+            ? await githubCreateNote(
+                await ensureDriveToken(),
+                vaultRef.current!.folderId,
+                parentId,
+                fileName,
+                content,
+              )
+            : await createTextFile(
+                await ensureDriveToken(),
+                parentId,
+                fileName,
+                content,
+                'application/x-obsidian-base',
+              )
+      const resolvedName = file.name || fileName
+      const pathHint =
+        github && file.id.includes(':')
+          ? file.id.slice(file.id.indexOf(':') + 1)
+          : resolvedName
+      contentCache.current.set(file.id, content)
+      setIndex((prev) =>
+        upsertNote(
+          prev,
+          noteFromFile({ ...file, name: resolvedName }, pathHint, content),
+        ),
+      )
+      await openFile(file.id, { name: resolvedName, path: pathHint })
+      void refreshVault()
+    },
+    [demo, local, refreshVault, openFile, ensureDriveToken],
+  )
+
+  const writeFileContent = useCallback(
+    async (fileId: string, content: string) => {
+      if (!demoRef.current && !localRef.current && !sessionRef.current) return
+      contentCache.current.set(fileId, content)
+      if (demoRef.current) demoWrite(fileId, content)
+      else if (localRef.current) await localWrite(fileId, content)
+      else {
+        const accessToken = await ensureDriveToken()
+        if (sessionRef.current?.provider === 'github') {
+          const repoId = vaultRef.current?.folderId
+          if (!repoId) throw new Error('No GitHub vault selected')
+          await githubWrite(accessToken, repoId, fileId, content)
+        } else {
+          await updateTextFile(accessToken, fileId, content)
+        }
+      }
+      const existing = indexRef.current.notesById.get(fileId)
+      if (existing) {
+        const note = noteFromFile(
+          {
+            id: fileId,
+            name: existing.name,
+            mimeType: /\.base$/i.test(existing.name)
+              ? 'application/x-obsidian-base'
+              : 'text/markdown',
+            modifiedTime: new Date().toISOString(),
+          },
+          existing.path,
+          content,
+        )
+        setIndex((prev) => upsertNote(prev, note))
+      }
+      if (activeFileIdRef.current === fileId) {
+        setEditorContentState(content)
+        setTabs((prev) => prev.map((t) => (t.id === fileId ? { ...t, dirty: false } : t)))
+        setSaveStatus('saved')
+      }
+    },
+    [ensureDriveToken],
+  )
+
   const createDirectory = useCallback(
     async (parentId: string, name: string) => {
       if (demo) demoCreateFolder(parentId, name)
@@ -875,9 +968,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEditorContent,
       saveActiveFile,
       createNote,
+      createBase,
       createDirectory,
       renameNode,
       deleteNode,
+      writeFileContent,
       setViewMode,
       setLeftPanel,
       setRightPanel,
@@ -917,9 +1012,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setEditorContent,
       saveActiveFile,
       createNote,
+      createBase,
       createDirectory,
       renameNode,
       deleteNode,
+      writeFileContent,
       openNoteByTitle,
     ],
   )

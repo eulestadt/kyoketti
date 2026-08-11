@@ -25,6 +25,7 @@ import { MarkdownEditor } from './editor/MarkdownEditor'
 import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
 import { displayNoteName } from '../lib/noteNames'
+import { isBaseFileName } from '../lib/bases'
 import './Workspace.css'
 
 const PURE_KEY = 'kyoketti.pureMode'
@@ -163,6 +164,9 @@ export function Workspace() {
     return () => window.removeEventListener('keydown', onKey)
   }, [vault, createNote, pureMode, switcherOpen, viewMode, setViewMode])
 
+  const activeTab = tabs.find((t) => t.id === activeFileId)
+  const activeIsBase = activeTab ? isBaseFileName(activeTab.name) : false
+
   return (
     <div
       className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''} ${pureMode && isFullscreen ? 'pure-fullscreen' : ''}`}
@@ -255,34 +259,38 @@ export function Workspace() {
                   ))}
                 </div>
                 <div className="view-modes">
-                  <button
-                    className={viewMode === 'source' ? 'active' : ''}
-                    title="Source"
-                    onClick={() => setViewMode('source')}
-                  >
-                    <Code2 size={15} />
-                  </button>
-                  <button
-                    className={viewMode === 'live' ? 'active' : ''}
-                    title="Live preview"
-                    onClick={() => setViewMode('live')}
-                  >
-                    <Columns2 size={15} />
-                  </button>
-                  <button
-                    className={viewMode === 'wysiwyg' ? 'active' : ''}
-                    title="WYSIWYG"
-                    onClick={() => setViewMode('wysiwyg')}
-                  >
-                    <PenLine size={15} />
-                  </button>
-                  <button
-                    className={viewMode === 'reading' ? 'active' : ''}
-                    title="Reading view"
-                    onClick={() => setViewMode('reading')}
-                  >
-                    <BookOpen size={15} />
-                  </button>
+                  {!activeIsBase && (
+                    <>
+                      <button
+                        className={viewMode === 'source' ? 'active' : ''}
+                        title="Source"
+                        onClick={() => setViewMode('source')}
+                      >
+                        <Code2 size={15} />
+                      </button>
+                      <button
+                        className={viewMode === 'live' ? 'active' : ''}
+                        title="Live preview"
+                        onClick={() => setViewMode('live')}
+                      >
+                        <Columns2 size={15} />
+                      </button>
+                      <button
+                        className={viewMode === 'wysiwyg' ? 'active' : ''}
+                        title="WYSIWYG"
+                        onClick={() => setViewMode('wysiwyg')}
+                      >
+                        <PenLine size={15} />
+                      </button>
+                      <button
+                        className={viewMode === 'reading' ? 'active' : ''}
+                        title="Reading view"
+                        onClick={() => setViewMode('reading')}
+                      >
+                        <BookOpen size={15} />
+                      </button>
+                    </>
+                  )}
                   <button
                     title="Pure editor mode (Ctrl/Cmd+Shift+P)"
                     aria-pressed={pureMode}

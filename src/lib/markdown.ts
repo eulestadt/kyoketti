@@ -1,4 +1,5 @@
 import TurndownService from 'turndown'
+import { parse as parseYaml } from 'yaml'
 import { convertMarkdownTablesToHtml, htmlTableToMarkdown } from './tables'
 
 export type ParsedNote = {
@@ -44,8 +45,16 @@ export function parseFrontmatter(raw: string): { frontmatter: Record<string, unk
   }
   const end = raw.indexOf('\n---', 3)
   if (end === -1) return { frontmatter: {}, body: raw }
-  const fmBlock = raw.slice(4, end).trim()
+  const fmBlock = raw.slice(raw.startsWith('---\r\n') ? 5 : 4, end)
   const body = raw.slice(end + 4).replace(/^\r?\n/, '')
+  try {
+    const doc = parseYaml(fmBlock)
+    if (doc && typeof doc === 'object' && !Array.isArray(doc)) {
+      return { frontmatter: doc as Record<string, unknown>, body }
+    }
+  } catch {
+    /* fall through to line parser */
+  }
   const frontmatter: Record<string, unknown> = {}
 
   for (const line of fmBlock.split(/\r?\n/)) {
@@ -114,7 +123,10 @@ export function parseNote(raw: string): ParsedNote {
 }
 
 export function noteTitleFromName(name: string): string {
-  return name.replace(/\.md$/i, '').replace(/\.markdown$/i, '')
+  return name
+    .replace(/\.md$/i, '')
+    .replace(/\.markdown$/i, '')
+    .replace(/\.base$/i, '')
 }
 
 export function escapeHtml(value: string): string {

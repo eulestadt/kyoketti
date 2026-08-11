@@ -5,8 +5,10 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
-import { renderMarkdownToHtml } from '../../lib/markdown'
+import { isBaseFileName } from '../../lib/bases'
+import { BaseViewer } from '../bases/BaseViewer'
 import { WysiwygEditor } from './WysiwygEditor'
+import { MarkdownWithBases } from './MarkdownWithBases'
 import './MarkdownEditor.css'
 
 const editorChrome = EditorView.theme({
@@ -16,15 +18,21 @@ const editorChrome = EditorView.theme({
 })
 
 export function MarkdownEditor() {
-  const { editorContent, setEditorContent, viewMode, openNoteByTitle, index, activeFileId } = useApp()
+  const {
+    editorContent,
+    setEditorContent,
+    viewMode,
+    openNoteByTitle,
+    index,
+    activeFileId,
+    tabs,
+  } = useApp()
   const { theme } = useTheme()
 
-  const previewHtml = useMemo(() => {
-    return renderMarkdownToHtml(editorContent, (title) => {
-      const note = index.notesByTitle.get(title.toLowerCase())
-      return note ? `#note/${note.id}` : null
-    })
-  }, [editorContent, index.notesByTitle])
+  const activeName = tabs.find((t) => t.id === activeFileId)?.name
+    ?? index.notesById.get(activeFileId ?? '')?.name
+    ?? ''
+  const isBase = isBaseFileName(activeName)
 
   const extensions = useMemo(
     () => [markdown({ base: markdownLanguage }), EditorView.lineWrapping, editorChrome],
@@ -42,22 +50,24 @@ export function MarkdownEditor() {
     )
   }
 
-  async function handlePreviewClick(e: React.MouseEvent<HTMLDivElement>) {
-    const target = e.target as HTMLElement
-    const link = target.closest('a.internal-link') as HTMLAnchorElement | null
-    if (!link) return
-    e.preventDefault()
-    const title = link.dataset.note
-    if (title) await openNoteByTitle(title)
+  if (isBase) {
+    return (
+      <BaseViewer
+        key={activeFileId}
+        content={editorContent}
+        onChange={setEditorContent}
+        thisFileId={activeFileId}
+      />
+    )
   }
 
   if (viewMode === 'reading') {
     return (
       <div key={activeFileId} className="reading-scroll">
-        <div
-          className="reading-view markdown-preview"
-          onClick={(e) => void handlePreviewClick(e)}
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        <MarkdownWithBases
+          content={editorContent}
+          thisFileId={activeFileId}
+          onInternalClick={(title) => void openNoteByTitle(title)}
         />
       </div>
     )
@@ -86,11 +96,13 @@ export function MarkdownEditor() {
             }}
           />
         </div>
-        <div
-          className="preview-pane markdown-preview"
-          onClick={(e) => void handlePreviewClick(e)}
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
+        <div className="preview-pane">
+          <MarkdownWithBases
+            content={editorContent}
+            thisFileId={activeFileId}
+            onInternalClick={(title) => void openNoteByTitle(title)}
+          />
+        </div>
       </div>
     )
   }

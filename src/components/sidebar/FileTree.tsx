@@ -7,15 +7,27 @@ import {
   FileText,
   Folder,
   MoreHorizontal,
+  Table2,
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
+import { ensureBaseFileName, isBaseFileName } from '../../lib/bases'
 import type { VaultNode } from '../../types'
 import './FileTree.css'
 
 export function FileTree() {
-  const { tree, vault, openFile, activeFileId, createNote, createDirectory, renameNode, deleteNode, loadingVault } =
-    useApp()
+  const {
+    tree,
+    vault,
+    openFile,
+    activeFileId,
+    createNote,
+    createBase,
+    createDirectory,
+    renameNode,
+    deleteNode,
+    loadingVault,
+  } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [menuId, setMenuId] = useState<string | null>(null)
 
@@ -42,6 +54,12 @@ export function FileTree() {
     const name = window.prompt('New note name', 'Untitled')
     if (!name?.trim()) return
     await createNote(parentId, ensureMarkdownFileName(name))
+  }
+
+  async function onCreateBase(parentId: string) {
+    const name = window.prompt('New base name', 'Untitled')
+    if (!name?.trim()) return
+    await createBase(parentId, ensureBaseFileName(name))
   }
 
   async function onCreateFolder(parentId: string) {
@@ -81,6 +99,9 @@ export function FileTree() {
               <button title="New note" onClick={() => void onCreateNote(node.id)}>
                 <FilePlus size={13} />
               </button>
+              <button title="New base" onClick={() => void onCreateBase(node.id)}>
+                <Table2 size={13} />
+              </button>
               <button title="New folder" onClick={() => void onCreateFolder(node.id)}>
                 <FolderPlus size={13} />
               </button>
@@ -102,12 +123,14 @@ export function FileTree() {
       )
     }
 
+    const Icon = isBaseFileName(node.name) ? Table2 : FileText
+
     return (
       <div key={node.id} className="tree-node">
         <div className={`tree-row file ${isActive ? 'active' : ''}`} style={{ paddingLeft: 8 + depth * 12 }}>
           <button className="tree-main" onClick={() => void openFile(node.id)}>
             <span className="tree-spacer" />
-            <FileText size={14} />
+            <Icon size={14} />
             <span>{displayNoteName(node.name)}</span>
           </button>
           <div className="tree-actions">

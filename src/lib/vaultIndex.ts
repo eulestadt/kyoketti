@@ -1,4 +1,4 @@
-import { isMarkdownFile } from './googleDrive'
+import { isMarkdownFile, isVaultTextFile } from './googleDrive'
 import { noteTitleFromName, parseNote } from './markdown'
 import type { DriveFile, NoteMeta } from '../types'
 
@@ -111,6 +111,11 @@ export function noteFromFile(
 
 export function markdownFiles(files: DriveFile[]): DriveFile[] {
   return files.filter(isMarkdownFile)
+}
+
+/** Notes + .base files loaded into the vault index. */
+export function vaultTextFiles(files: DriveFile[]): DriveFile[] {
+  return files.filter(isVaultTextFile)
 }
 
 export function fuzzyMatch(query: string, text: string): boolean {
