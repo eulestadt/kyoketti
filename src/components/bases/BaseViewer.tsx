@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Copy,
   Download,
-  Filter,
   ListFilter,
   Plus,
   Search,
@@ -25,8 +24,10 @@ import {
   isFile,
   defaultBaseContent,
 } from '../../lib/bases'
-import type { BaseConfig, BaseRow, BaseView, FilterNode } from '../../lib/bases'
+import type { BaseConfig, BaseRow, BaseView } from '../../lib/bases'
 import { setFrontmatterProperty } from '../../lib/bases/frontmatter'
+import { countFilterConditions } from '../../lib/bases/filterUi'
+import { FilterPanel, filterButtonLabel } from './FilterPanel'
 import './BaseViewer.css'
 
 type Props = {
@@ -121,19 +122,24 @@ export function BaseViewer({
   const columns = view.order?.length ? view.order : ['file.name', 'file.mtime', 'file.size']
 
   const commitConfig = useCallback(
-    (next: BaseConfig) => {
-      setConfig(next)
-      if (onChange && !readOnly) onChange(serializeBaseConfig(next))
+    (next: BaseConfig | ((prev: BaseConfig) => BaseConfig)) => {
+      setConfig((prev) => {
+        const resolved = typeof next === 'function' ? next(prev) : next
+        if (onChange && !readOnly) onChange(serializeBaseConfig(resolved))
+        return resolved
+      })
     },
     [onChange, readOnly],
   )
 
   const updateView = useCallback(
     (patch: Partial<BaseView>) => {
-      const views = config.views.map((v, i) => (i === activeViewIndex ? { ...v, ...patch } : v))
-      commitConfig({ ...config, views })
+      commitConfig((prev) => ({
+        ...prev,
+        views: prev.views.map((v, i) => (i === activeViewIndex ? { ...v, ...patch } : v)),
+      }))
     },
-    [config, activeViewIndex, commitConfig],
+    [activeViewIndex, commitConfig],
   )
 
   async function openRow(row: BaseRow) {
@@ -391,16 +397,13 @@ export function BaseViewer({
     )
   }
 
-  const filterText =
-    typeof view.filters === 'string'
-      ? view.filters
-      : view.filters
-        ? serializeFilterPreview(view.filters)
-        : typeof config.filters === 'string'
-          ? config.filters
-          : config.filters
-            ? serializeFilterPreview(config.filters)
-            : ''
+  const filterCount = countFilterConditions(config.filters) + countFilterConditions(view.filters)
+  const filterPropertyOptions = useMemo(() => {
+    return collectKnownProps(config, index).map((prop) => ({
+      value: prop,
+      label: getPropertyDisplayName(config, prop),
+    }))
+  }, [config, index])
 
   return (
     <div className="base-viewer">
@@ -449,31 +452,25 @@ export function BaseViewer({
           <div className="base-tool-wrap">
             <button
               type="button"
-              className={`base-tool-btn ${filterOpen ? 'active' : ''}`}
+              className={`base-tool-btn ${filterOpen || filterCount > 0 ? 'active' : ''}`}
               onClick={() => {
                 setFilterOpen((v) => !v)
                 setPropsOpen(false)
                 setSortOpen(false)
               }}
             >
-              <ListFilter size={14} /> Filter
+              <ListFilter size={14} /> {filterButtonLabel(config.filters, view.filters)}
             </button>
             {filterOpen && (
-              <div className="base-popover">
-                <h4>View filter expression</h4>
-                <textarea
-                  rows={4}
-                  defaultValue={typeof view.filters === 'string' ? view.filters : filterText}
-                  onBlur={(e) => {
-                    const text = e.target.value.trim()
-                    updateView({ filters: text ? text : undefined })
-                  }}
-                  placeholder='file.hasTag("book")'
-                />
-                <p style={{ margin: 0, fontSize: 11, opacity: 0.7 }}>
-                  Global filters stay in the .base YAML. Leave empty to clear view filter.
-                </p>
-              </div>
+              <FilterPanel
+                globalFilters={config.filters}
+                viewFilters={view.filters}
+                propertyOptions={filterPropertyOptions}
+                readOnly={readOnly}
+                onClose={() => setFilterOpen(false)}
+                onChangeGlobal={(filters) => commitConfig((prev) => ({ ...prev, filters }))}
+                onChangeView={(filters) => updateView({ filters })}
+              />
             )}
           </div>
 
@@ -673,24 +670,11 @@ export function BaseViewer({
               <LayoutGrid size={14} />
             </span>
           )}
-          {view.type === 'table' && (
-            <span className="base-tool-btn" style={{ pointerEvents: 'none', opacity: 0.7 }}>
-              <Filter size={14} />
-            </span>
-          )}
         </div>
       </div>
       {renderBody()}
     </div>
   )
-}
-
-function serializeFilterPreview(node: FilterNode): string {
-  if (typeof node === 'string') return node
-  if ('and' in node) return node.and.map(serializeFilterPreview).join(' && ')
-  if ('or' in node) return node.or.map(serializeFilterPreview).join(' || ')
-  if ('not' in node) return `!(${node.not.map(serializeFilterPreview).join(' || ')})`
-  return ''
 }
 
 function collectKnownProps(
