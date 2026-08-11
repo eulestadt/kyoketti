@@ -10,9 +10,26 @@ import {
   ListOrdered,
   Quote,
   Strikethrough,
+  Table,
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
+import {
+  createEmptyTableElement,
+  deleteTableColumn,
+  deleteTableRow,
+  duplicateTableColumn,
+  duplicateTableRow,
+  focusTableCell,
+  getCellPosition,
+  insertTableColumn,
+  insertTableRow,
+  moveTableColumn,
+  moveTableRow,
+  setColumnAlign,
+  sortTableByColumn,
+  type TableAlign,
+} from '../../lib/tables'
 
 const TOOLBAR_KEY = 'kyoketti.wysiwygToolbar'
 
@@ -231,6 +248,14 @@ export function WysiwygEditor() {
   const lastSerialized = useRef(editorContent)
   const applyingExternal = useRef(false)
   const [toolbarVisible, setToolbarVisible] = useState(loadToolbarVisible)
+  const [tableMenu, setTableMenu] = useState<{
+    x: number
+    y: number
+    table: HTMLTableElement
+    row: number
+    col: number
+    isHeader: boolean
+  } | null>(null)
 
   function toggleToolbar() {
     setToolbarVisible((prev) => {
@@ -243,6 +268,24 @@ export function WysiwygEditor() {
       return next
     })
   }
+
+  useEffect(() => {
+    if (!tableMenu) return
+    function onClose(e: MouseEvent) {
+      const target = e.target as HTMLElement
+      if (target.closest('.table-context-menu')) return
+      setTableMenu(null)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setTableMenu(null)
+    }
+    window.addEventListener('mousedown', onClose)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onClose)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [tableMenu])
 
   useEffect(() => {
     const el = surfaceRef.current
@@ -273,6 +316,33 @@ export function WysiwygEditor() {
     setEditorContent(next)
   }
 
+  function insertTable() {
+    const surface = surfaceRef.current
+    if (!surface) return
+    surface.focus()
+    const table = createEmptyTableElement(2, 1)
+    const selection = window.getSelection()
+    if (selection && selection.rangeCount > 0 && surface.contains(selection.anchorNode)) {
+      const range = selection.getRangeAt(0)
+      range.deleteContents()
+      range.insertNode(table)
+      const after = document.createElement('p')
+      after.innerHTML = '<br>'
+      table.after(after)
+    } else {
+      ensureEditableTail(surface)
+      surface.insertBefore(table, surface.lastChild)
+    }
+    focusTableCell(table, -1, 0)
+    syncFromDom()
+  }
+
+  function runTableAction(action: () => void) {
+    action()
+    setTableMenu(null)
+    syncFromDom()
+  }
+
   async function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement
     const link = target.closest('a.internal-link') as HTMLAnchorElement | null
@@ -286,8 +356,29 @@ export function WysiwygEditor() {
     if (title) await openNoteByTitle(title)
   }
 
-  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote') {
+  function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement
+    const cell = target.closest('th, td') as HTMLElement | null
+    if (!cell || !surfaceRef.current?.contains(cell)) return
+    const pos = getCellPosition(cell)
+    if (!pos) return
+    e.preventDefault()
+    setTableMenu({
+      x: e.clientX,
+      y: e.clientY,
+      table: pos.table,
+      row: pos.row,
+      col: pos.col,
+      isHeader: pos.isHeader,
+    })
+  }
+
+  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote' | 'table') {
     surfaceRef.current?.focus()
+    if (kind === 'table') {
+      insertTable()
+      return
+    }
     if (kind === 'h1') runFormat('formatBlock', 'h1')
     else if (kind === 'h2') runFormat('formatBlock', 'h2')
     else if (kind === 'bold') wrapSelection('strong')
@@ -303,6 +394,65 @@ export function WysiwygEditor() {
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     const mod = e.metaKey || e.ctrlKey
     const key = e.key
+    const selection = window.getSelection()
+    const anchor = selection?.anchorNode ?? null
+    const cell = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('th, td') as HTMLElement | null
+
+    // Table navigation (Obsidian-style Tab / Enter)
+    if (cell && surfaceRef.current?.contains(cell) && (key === 'Tab' || (key === 'Enter' && !mod))) {
+      const pos = getCellPosition(cell)
+      if (pos) {
+        e.preventDefault()
+        const cols = pos.table.querySelector('tr')?.children.length ?? 1
+        const bodyRows = pos.table.tBodies[0]?.rows.length ?? 0
+        if (key === 'Tab') {
+          if (e.shiftKey) {
+            if (pos.isHeader) {
+              if (pos.col > 0) focusTableCell(pos.table, -1, pos.col - 1)
+            } else if (pos.col > 0) {
+              focusTableCell(pos.table, pos.row, pos.col - 1)
+            } else if (pos.row > 0) {
+              focusTableCell(pos.table, pos.row - 1, cols - 1)
+            } else {
+              focusTableCell(pos.table, -1, cols - 1)
+            }
+          } else if (pos.isHeader) {
+            if (pos.col < cols - 1) focusTableCell(pos.table, -1, pos.col + 1)
+            else if (bodyRows > 0) focusTableCell(pos.table, 0, 0)
+            else {
+              insertTableRow(pos.table, 0)
+              focusTableCell(pos.table, 0, 0)
+              syncFromDom()
+            }
+          } else if (pos.col < cols - 1) {
+            focusTableCell(pos.table, pos.row, pos.col + 1)
+          } else if (pos.row < bodyRows - 1) {
+            focusTableCell(pos.table, pos.row + 1, 0)
+          } else {
+            insertTableRow(pos.table, bodyRows)
+            focusTableCell(pos.table, bodyRows, 0)
+            syncFromDom()
+          }
+          return
+        }
+        // Enter
+        if (pos.isHeader) {
+          if (bodyRows > 0) focusTableCell(pos.table, 0, pos.col)
+          else {
+            insertTableRow(pos.table, 0)
+            focusTableCell(pos.table, 0, pos.col)
+            syncFromDom()
+          }
+        } else if (pos.row < bodyRows - 1) {
+          focusTableCell(pos.table, pos.row + 1, pos.col)
+        } else {
+          insertTableRow(pos.table, bodyRows)
+          focusTableCell(pos.table, bodyRows, pos.col)
+          syncFromDom()
+        }
+        return
+      }
+    }
 
     // Keep focus in the editor; indent / outdent lists or insert spaces.
     if (key === 'Tab') {
@@ -323,9 +473,9 @@ export function WysiwygEditor() {
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
-      const selection = window.getSelection()
-      if (!selection || selection.rangeCount === 0) return
-      const node = selection.anchorNode
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0) return
+      const node = sel.anchorNode
       const blockquote = node instanceof Element ? node.closest('blockquote') : node?.parentElement?.closest('blockquote')
       if (!blockquote || !surfaceRef.current) return
 
@@ -340,8 +490,8 @@ export function WysiwygEditor() {
       const range = document.createRange()
       range.setStart(p, 0)
       range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
+      sel.removeAllRanges()
+      sel.addRange(range)
       syncFromDom()
       return
     }
@@ -361,7 +511,6 @@ export function WysiwygEditor() {
       return
     }
     if ((lower === 'x' && e.shiftKey) || (lower === 's' && e.shiftKey && !e.altKey)) {
-      // Mod+Shift+X (common) or Mod+Shift+S
       e.preventDefault()
       handleFormat('strike')
       return
@@ -410,6 +559,8 @@ export function WysiwygEditor() {
     }
   }
 
+  const menu = tableMenu
+
   return (
     <div className={`wysiwyg-editor ${toolbarVisible ? '' : 'toolbar-hidden'}`}>
       {toolbarVisible ? (
@@ -437,6 +588,9 @@ export function WysiwygEditor() {
           </button>
           <button type="button" title="Quote (Ctrl/Cmd+Shift+.)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
             <Quote size={15} />
+          </button>
+          <button type="button" title="Insert table" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('table')}>
+            <Table size={15} />
           </button>
           <span className="wysiwyg-toolbar-spacer" />
           <button
@@ -476,8 +630,120 @@ export function WysiwygEditor() {
           onBlur={syncFromDom}
           onKeyDown={handleKeyDown}
           onClick={(e) => void handleClick(e)}
+          onContextMenu={handleContextMenu}
         />
       </div>
+
+      {menu && (
+        <div
+          className="table-context-menu"
+          style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 320) }}
+          role="menu"
+        >
+          <div className="menu-label">Row</div>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => insertTableRow(menu.table, Math.max(0, menu.row)))}>
+            Insert row above
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => insertTableRow(menu.table, menu.isHeader ? 0 : menu.row + 1))}>
+            Insert row below
+          </button>
+          {!menu.isHeader && (
+            <>
+              <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => duplicateTableRow(menu.table, menu.row))}>
+                Duplicate row
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  runTableAction(() => {
+                    if (menu.row > 0) moveTableRow(menu.table, menu.row, menu.row - 1)
+                  })
+                }
+              >
+                Move row up
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  runTableAction(() => {
+                    const len = menu.table.tBodies[0]?.rows.length ?? 0
+                    if (menu.row < len - 1) moveTableRow(menu.table, menu.row, menu.row + 1)
+                  })
+                }
+              >
+                Move row down
+              </button>
+              <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => deleteTableRow(menu.table, menu.row))}>
+                Delete row
+              </button>
+            </>
+          )}
+          <div className="menu-sep" />
+          <div className="menu-label">Column</div>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => insertTableColumn(menu.table, menu.col))}>
+            Insert column left
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => insertTableColumn(menu.table, menu.col + 1))}>
+            Insert column right
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => duplicateTableColumn(menu.table, menu.col))}>
+            Duplicate column
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() =>
+              runTableAction(() => {
+                if (menu.col > 0) moveTableColumn(menu.table, menu.col, menu.col - 1)
+              })
+            }
+          >
+            Move column left
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() =>
+              runTableAction(() => {
+                const cols = menu.table.querySelector('tr')?.children.length ?? 0
+                if (menu.col < cols - 1) moveTableColumn(menu.table, menu.col, menu.col + 1)
+              })
+            }
+          >
+            Move column right
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => deleteTableColumn(menu.table, menu.col))}>
+            Delete column
+          </button>
+          <div className="menu-sep" />
+          <div className="menu-label">Align</div>
+          {(['left', 'center', 'right', 'none'] as TableAlign[]).map((align) => (
+            <button
+              key={align}
+              type="button"
+              role="menuitem"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runTableAction(() => setColumnAlign(menu.table, menu.col, align))}
+            >
+              {align === 'none' ? 'Default align' : `${align[0]!.toUpperCase()}${align.slice(1)} align`}
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <div className="menu-label">Sort</div>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => sortTableByColumn(menu.table, menu.col, true))}>
+            Sort ascending
+          </button>
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => runTableAction(() => sortTableByColumn(menu.table, menu.col, false))}>
+            Sort descending
+          </button>
+        </div>
+      )}
     </div>
   )
 }

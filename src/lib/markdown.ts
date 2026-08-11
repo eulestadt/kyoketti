@@ -1,4 +1,5 @@
 import TurndownService from 'turndown'
+import { convertMarkdownTablesToHtml, htmlTableToMarkdown } from './tables'
 
 export type ParsedNote = {
   frontmatter: Record<string, unknown>
@@ -10,6 +11,32 @@ export type ParsedNote = {
 const WIKI_LINK_RE = /\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g
 const TAG_RE = /(^|\s)#([A-Za-z0-9_/-]+)/g
 const EMBED_RE = /!\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/g
+
+/** Split wiki/embed inner on unescaped `|`. */
+export function splitWikiInner(inner: string): { target: string; alias?: string } {
+  let target = ''
+  let alias: string | undefined
+  let buf = ''
+  let hitPipe = false
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] === '\\' && inner[i + 1] === '|') {
+      buf += '|'
+      i += 1
+      continue
+    }
+    if (inner[i] === '|' && !hitPipe) {
+      target = buf
+      buf = ''
+      hitPipe = true
+      continue
+    }
+    buf += inner[i]
+  }
+  if (hitPipe) alias = buf
+  else target = buf
+  const [title] = target.split('#')
+  return { target: title.trim(), alias: alias?.trim() }
+}
 
 export function parseFrontmatter(raw: string): { frontmatter: Record<string, unknown>; body: string } {
   if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) {
@@ -118,18 +145,21 @@ export function renderMarkdownToHtml(
     return `@@INLINE${inlines.length - 1}@@`
   })
 
-  text = text.replace(EMBED_RE, (_m, target: string) => {
-    const title = target.trim()
-    const href = resolveNoteHref(title)
-    if (!href) return `<div class="cm-embed missing">Missing embed: ${escapeHtml(title)}</div>`
-    return `<div class="cm-embed"><a class="internal-link" href="${href}" data-note="${escapeHtml(title)}">!${escapeHtml(title)}</a></div>`
+  // Obsidian / GFM pipe tables first (cells keep markdown, including `\|`)
+  text = convertMarkdownTablesToHtml(text)
+
+  // Prefer a permissive wiki/embed matcher that understands `\|` (aliases / image size)
+  text = text.replace(/!\[\[([^\]]+)\]\]/g, (_m, inner: string) => {
+    const { target } = splitWikiInner(inner)
+    const href = resolveNoteHref(target)
+    if (!href) return `<div class="cm-embed missing">Missing embed: ${escapeHtml(target)}</div>`
+    return `<div class="cm-embed"><a class="internal-link" href="${href}" data-note="${escapeHtml(target)}">!${escapeHtml(target)}</a></div>`
   })
 
   text = text.replace(/\[\[([^\]]+)\]\]/g, (_m, inner: string) => {
-    const [targetPart, alias] = inner.split('|')
-    const [title] = targetPart.split('#')
-    const display = (alias ?? title).trim()
-    const noteTitle = title.trim()
+    const { target, alias } = splitWikiInner(inner)
+    const display = (alias ?? target).trim()
+    const noteTitle = target.trim()
     const href = resolveNoteHref(noteTitle)
     const cls = href ? 'internal-link' : 'internal-link is-unresolved'
     return `<a class="${cls}" href="${href ?? '#'}" data-note="${escapeHtml(noteTitle)}">${escapeHtml(display)}</a>`
@@ -181,6 +211,7 @@ export function renderMarkdownToHtml(
       const trimmed = para.trim()
       if (!trimmed) return ''
       if (/^<(h[1-6]|ul|ol|li|blockquote|pre|hr|div|table|img)/.test(trimmed)) return trimmed
+      if (trimmed.includes('<table')) return trimmed
       return `<p>${trimmed.replace(/\n/g, '<br />')}</p>`
     })
     .join('\n')
@@ -276,6 +307,14 @@ function createTurndown(): TurndownService {
         link?.getAttribute('data-note') ??
         (link?.textContent ?? '').replace(/^!/, '').trim()
       return note ? `![[${note}]]` : ''
+    },
+  })
+
+  td.addRule('table', {
+    filter: 'table',
+    replacement: (_content, node) => {
+      const table = node as HTMLTableElement
+      return `\n\n${htmlTableToMarkdown(table)}\n\n`
     },
   })
 

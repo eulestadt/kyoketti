@@ -257,6 +257,93 @@
   color: var(--text-muted);
 }
 
+.markdown-preview table.cm-table,
+.wysiwyg-surface table.cm-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0 1.25rem;
+  font-size: 0.95em;
+  table-layout: auto;
+}
+
+.markdown-preview table.cm-table th,
+.markdown-preview table.cm-table td,
+.wysiwyg-surface table.cm-table th,
+.wysiwyg-surface table.cm-table td {
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.7rem;
+  vertical-align: top;
+  min-width: 2.5rem;
+  word-break: break-word;
+}
+
+.markdown-preview table.cm-table th,
+.wysiwyg-surface table.cm-table th {
+  background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+  font-weight: 600;
+}
+
+.markdown-preview table.cm-table tr:nth-child(even) td,
+.wysiwyg-surface table.cm-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bg-hover) 35%, transparent);
+}
+
+.wysiwyg-surface table.cm-table th:focus,
+.wysiwyg-surface table.cm-table td:focus,
+.wysiwyg-surface table.cm-table th:focus-within,
+.wysiwyg-surface table.cm-table td:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.table-context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 200px;
+  max-height: min(70vh, 420px);
+  overflow: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.table-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.table-context-menu button:hover {
+  background: var(--bg-hover);
+}
+
+.table-context-menu .menu-sep {
+  height: 1px;
+  margin: 0.25rem 0.2rem;
+  background: var(--border);
+}
+
+.table-context-menu .menu-label {
+  padding: 0.35rem 0.55rem 0.15rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
 .cm-editor {
   height: 100%;
   width: 100%;
