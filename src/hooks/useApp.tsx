@@ -71,6 +71,8 @@ import {
   createEmptyIndex,
   noteFromFile,
   removeNote,
+  resolveNoteRef,
+  rewriteLinksForRename,
   upsertNote,
   vaultTextFiles,
   type VaultIndex,
@@ -148,7 +150,7 @@ type AppActions = {
   setViewMode: (mode: ViewMode) => void
   setLeftPanel: (panel: LeftPanel) => void
   setRightPanel: (panel: RightPanel) => void
-  openNoteByTitle: (title: string) => Promise<boolean>
+  openNoteByTitle: (title: string, fromPath?: string) => Promise<boolean>
   setError: (error: string | null) => void
   authProvider: AuthProvider | null
 }
@@ -874,37 +876,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [demo, local, refreshVault, ensureDriveToken],
   )
 
+  const openNoteByTitle = useCallback(
+    async (title: string, fromPath?: string) => {
+      const note = resolveNoteRef(indexRef.current, title, { fromPath })
+      if (!note) return false
+      await openFile(note.id)
+      return true
+    },
+    [openFile],
+  )
+
   const renameNode = useCallback(
     async (id: string, name: string) => {
+      const existing = indexRef.current.notesById.get(id)
+      const oldRef = existing
+        ? { title: existing.title, path: existing.path, name: existing.name }
+        : null
+      const nextPath = existing
+        ? existing.path.includes('/')
+          ? `${existing.path.slice(0, existing.path.lastIndexOf('/') + 1)}${name}`
+          : name
+        : name
+      const newRef = {
+        title: noteTitleFromFileName(name),
+        path: nextPath,
+        name,
+      }
+
       if (demo) demoRename(id, name)
       else if (local) await localRename(id, name)
       else if (sessionRef.current?.provider === 'github') {
         await githubRename(await ensureDriveToken(), vaultRef.current!.folderId, id, name)
       } else await renameFile(await ensureDriveToken(), id, name)
+
+      // Obsidian-style: rewrite wikilinks across the vault that pointed at the old name
+      if (oldRef && (oldRef.title !== newRef.title || oldRef.path !== newRef.path)) {
+        for (const note of indexRef.current.notesById.values()) {
+          if (note.id === id) continue
+          const nextContent = rewriteLinksForRename(note.content, oldRef, newRef)
+          if (nextContent === note.content) continue
+          try {
+            await writeFileContent(note.id, nextContent)
+          } catch {
+            /* keep going — best-effort link updates */
+          }
+        }
+      }
+
       setTabs((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t
-          const nextPath = t.path.includes('/')
-            ? `${t.path.slice(0, t.path.lastIndexOf('/') + 1)}${name}`
-            : name
           return { ...t, name, path: nextPath }
         }),
       )
       setIndex((prev) => {
-        const existing = prev.notesById.get(id)
-        if (!existing) return prev
+        const current = prev.notesById.get(id)
+        if (!current) return prev
         return upsertNote(prev, {
-          ...existing,
+          ...current,
           name,
-          title: noteTitleFromFileName(name),
-          path: existing.path.includes('/')
-            ? `${existing.path.slice(0, existing.path.lastIndexOf('/') + 1)}${name}`
-            : name,
+          title: newRef.title,
+          path: nextPath,
+          content:
+            oldRef && current.content
+              ? rewriteLinksForRename(current.content, oldRef, newRef)
+              : current.content,
         })
       })
+      if (activeFileIdRef.current === id && oldRef) {
+        setEditorContentState((prev) => rewriteLinksForRename(prev, oldRef, newRef))
+      }
       await refreshVault()
     },
-    [demo, local, refreshVault, ensureDriveToken],
+    [demo, local, refreshVault, ensureDriveToken, writeFileContent],
   )
 
   const deleteNode = useCallback(
@@ -924,15 +968,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refreshVault()
     },
     [demo, local, activeFileId, refreshVault, ensureDriveToken],
-  )
-  const openNoteByTitle = useCallback(
-    async (title: string) => {
-      const note = index.notesByTitle.get(title.toLowerCase())
-      if (!note) return false
-      await openFile(note.id)
-      return true
-    },
-    [index.notesByTitle, openFile],
   )
 
   const value = useMemo(

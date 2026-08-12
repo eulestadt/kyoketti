@@ -24,6 +24,7 @@ export type NoteMeta = {
   title: string
   content: string
   frontmatter: Record<string, unknown>
+  aliases?: string[]
   tags: string[]
   links: string[]
   modifiedTime?: string

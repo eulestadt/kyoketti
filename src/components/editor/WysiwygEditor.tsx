@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
+import { resolveNoteRef } from '../../lib/vaultIndex'
 import {
   createEmptyTableElement,
   deleteTableColumn,
@@ -297,14 +298,15 @@ export function WysiwygEditor() {
 
     applyingExternal.current = true
     el.innerHTML = renderMarkdownToHtml(editorContent, (title) => {
-      const note = index.notesByTitle.get(title.toLowerCase())
+      const fromPath = activeFileId ? index.notesById.get(activeFileId)?.path : undefined
+      const note = resolveNoteRef(index, title, { fromPath })
       return note ? `#note/${note.id}` : null
     })
     ensureEditableTail(el)
     lastFileId.current = activeFileId
     lastSerialized.current = editorContent
     applyingExternal.current = false
-  }, [activeFileId, editorContent, index.notesByTitle])
+  }, [activeFileId, editorContent, index])
 
   function syncFromDom() {
     const el = surfaceRef.current
@@ -353,7 +355,7 @@ export function WysiwygEditor() {
     }
     e.preventDefault()
     const title = link.dataset.note
-    if (title) await openNoteByTitle(title)
+    if (title) await openNoteByTitle(title, activeFileId ? index.notesById.get(activeFileId)?.path : undefined)
   }
 
   function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {

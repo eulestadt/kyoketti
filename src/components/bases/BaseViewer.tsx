@@ -27,6 +27,7 @@ import {
 import type { BaseConfig, BaseRow, BaseView } from '../../lib/bases'
 import { setFrontmatterProperty } from '../../lib/bases/frontmatter'
 import { countFilterConditions } from '../../lib/bases/filterUi'
+import { resolveNoteRef } from '../../lib/vaultIndex'
 import { FilterPanel, filterButtonLabel } from './FilterPanel'
 import './BaseViewer.css'
 
@@ -150,9 +151,7 @@ export function BaseViewer({
     const path = cellLinkPath(value)
     if (!path) return
     const title = path.replace(/^\[\[|\]\]$/g, '').replace(/\.(md|markdown|base)$/i, '')
-    const byPath = [...index.notesById.values()].find(
-      (n) => n.path === path || n.name === path || n.title.toLowerCase() === title.toLowerCase(),
-    )
+    const byPath = resolveNoteRef(index, path) || resolveNoteRef(index, title)
     if (byPath) await openFile(byPath.id)
     else await openNoteByTitle(title)
   }

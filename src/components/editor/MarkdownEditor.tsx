@@ -67,7 +67,9 @@ export function MarkdownEditor() {
         <MarkdownWithBases
           content={editorContent}
           thisFileId={activeFileId}
-          onInternalClick={(title) => void openNoteByTitle(title)}
+          onInternalClick={(title) =>
+            void openNoteByTitle(title, index.notesById.get(activeFileId)?.path)
+          }
         />
       </div>
     )
@@ -100,7 +102,9 @@ export function MarkdownEditor() {
           <MarkdownWithBases
             content={editorContent}
             thisFileId={activeFileId}
-            onInternalClick={(title) => void openNoteByTitle(title)}
+            onInternalClick={(title) =>
+              void openNoteByTitle(title, index.notesById.get(activeFileId)?.path)
+            }
           />
         </div>
       </div>

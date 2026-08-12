@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { parseFrontmatter, renderMarkdownToHtml, splitWikiInner } from '../../lib/markdown'
 import { isBaseFileName, splitBaseEmbedTarget, parseBaseConfig } from '../../lib/bases'
+import { resolveNoteRef } from '../../lib/vaultIndex'
 import { BaseEmbed } from '../bases/BaseViewer'
 
 type Segment =
@@ -73,7 +74,7 @@ export function MarkdownWithBases({
   const segments = useMemo(() => splitBaseSegments(content), [content])
 
   const resolveHref = (title: string) => {
-    const note = index.notesByTitle.get(title.toLowerCase())
+    const note = resolveNoteRef(index, title, { fromPath: thisFileId ? index.notesById.get(thisFileId)?.path : undefined })
     return note ? `#note/${note.id}` : null
   }
 
@@ -115,14 +116,14 @@ export function MarkdownWithBases({
         }
         // base-embed file
         const title = seg.file.replace(/\.base$/i, '')
+        const fromPath = thisFileId ? index.notesById.get(thisFileId)?.path : undefined
         const note =
-          index.notesByTitle.get(title.toLowerCase()) ||
-          index.notesByTitle.get(seg.file.toLowerCase()) ||
+          resolveNoteRef(index, seg.file, { fromPath }) ||
+          resolveNoteRef(index, title, { fromPath }) ||
           [...index.notesById.values()].find(
             (n) =>
               n.name.toLowerCase() === seg.file.toLowerCase() ||
-              n.path.toLowerCase() === seg.file.toLowerCase() ||
-              n.title.toLowerCase() === title.toLowerCase(),
+              n.path.toLowerCase() === seg.file.toLowerCase(),
           )
         if (!note) {
           return (
