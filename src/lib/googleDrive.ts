@@ -262,9 +262,16 @@ export function isBaseFile(file: Pick<DriveFile, 'name' | 'mimeType'>): boolean 
   )
 }
 
-/** Markdown notes + Obsidian Bases configs indexed as vault text. */
+export function isCanvasFile(file: Pick<DriveFile, 'name' | 'mimeType'>): boolean {
+  return (
+    file.name.toLowerCase().endsWith('.canvas') ||
+    file.mimeType === 'application/x-obsidian-canvas'
+  )
+}
+
+/** Markdown notes + Bases + Canvas configs indexed as vault text. */
 export function isVaultTextFile(file: Pick<DriveFile, 'name' | 'mimeType'>): boolean {
-  return isMarkdownFile(file) || isBaseFile(file)
+  return isMarkdownFile(file) || isBaseFile(file) || isCanvasFile(file)
 }
 
 export async function createTextFile(

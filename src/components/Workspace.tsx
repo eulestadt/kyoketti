@@ -26,6 +26,7 @@ import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
 import { displayNoteName } from '../lib/noteNames'
 import { isBaseFileName } from '../lib/bases'
+import { isCanvasFileName } from '../lib/canvas'
 import './Workspace.css'
 
 const PURE_KEY = 'kyoketti.pureMode'
@@ -166,6 +167,8 @@ export function Workspace() {
 
   const activeTab = tabs.find((t) => t.id === activeFileId)
   const activeIsBase = activeTab ? isBaseFileName(activeTab.name) : false
+  const activeIsCanvas = activeTab ? isCanvasFileName(activeTab.name) : false
+  const hideMarkdownModes = activeIsBase || activeIsCanvas
 
   return (
     <div
@@ -259,7 +262,7 @@ export function Workspace() {
                   ))}
                 </div>
                 <div className="view-modes">
-                  {!activeIsBase && (
+                  {!hideMarkdownModes && (
                     <>
                       <button
                         className={viewMode === 'source' ? 'active' : ''}

@@ -8,10 +8,12 @@ import {
   Folder,
   MoreHorizontal,
   Table2,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
 import { ensureBaseFileName, isBaseFileName } from '../../lib/bases'
+import { ensureCanvasFileName, isCanvasFileName } from '../../lib/canvas'
 import type { VaultNode } from '../../types'
 import './FileTree.css'
 
@@ -23,6 +25,7 @@ export function FileTree() {
     activeFileId,
     createNote,
     createBase,
+    createCanvas,
     createDirectory,
     renameNode,
     deleteNode,
@@ -60,6 +63,12 @@ export function FileTree() {
     const name = window.prompt('New base name', 'Untitled')
     if (!name?.trim()) return
     await createBase(parentId, ensureBaseFileName(name))
+  }
+
+  async function onCreateCanvas(parentId: string) {
+    const name = window.prompt('New canvas name', 'Untitled')
+    if (!name?.trim()) return
+    await createCanvas(parentId, ensureCanvasFileName(name))
   }
 
   async function onCreateFolder(parentId: string) {
@@ -102,6 +111,9 @@ export function FileTree() {
               <button title="New base" onClick={() => void onCreateBase(node.id)}>
                 <Table2 size={13} />
               </button>
+              <button title="New canvas" onClick={() => void onCreateCanvas(node.id)}>
+                <LayoutDashboard size={13} />
+              </button>
               <button title="New folder" onClick={() => void onCreateFolder(node.id)}>
                 <FolderPlus size={13} />
               </button>
@@ -123,7 +135,11 @@ export function FileTree() {
       )
     }
 
-    const Icon = isBaseFileName(node.name) ? Table2 : FileText
+    const Icon = isCanvasFileName(node.name)
+      ? LayoutDashboard
+      : isBaseFileName(node.name)
+        ? Table2
+        : FileText
 
     return (
       <div key={node.id} className="tree-node">

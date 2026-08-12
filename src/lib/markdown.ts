@@ -127,6 +127,7 @@ export function noteTitleFromName(name: string): string {
     .replace(/\.md$/i, '')
     .replace(/\.markdown$/i, '')
     .replace(/\.base$/i, '')
+    .replace(/\.canvas$/i, '')
 }
 
 export function escapeHtml(value: string): string {

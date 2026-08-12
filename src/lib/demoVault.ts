@@ -1,6 +1,6 @@
 import type { DriveFile, VaultNode } from '../types'
 
-const DEMO_KEY = 'kyoketti.demo.files.v2'
+const DEMO_KEY = 'kyoketti.demo.files.v3'
 
 export type DemoFile = {
   id: string
@@ -40,6 +40,7 @@ This is a local demo vault. Link Google Drive from settings when you're ready to
 - Switch to graph view from the left ribbon
 - Press Ctrl/Cmd+O for the quick switcher
 - Open [[Vault Overview]] for an Obsidian Bases table of your notes
+- Open [[Ideas Canvas]] for a visual Canvas board
 
 > Markdown with [[wiki links]] keeps related notes connected.
 `,
@@ -120,6 +121,75 @@ views:
       - formula.updated
 `,
   },
+  {
+    id: 'demo-canvas',
+    name: 'Ideas Canvas.canvas',
+    mimeType: 'application/x-obsidian-canvas',
+    parentId: 'demo-root',
+    modifiedTime: new Date().toISOString(),
+    content: `{
+  "nodes": [
+    {
+      "id": "welcome",
+      "type": "text",
+      "x": -120,
+      "y": -80,
+      "width": 320,
+      "height": 180,
+      "color": "5",
+      "text": "## Ideas Canvas\\n\\nConnect notes visually.\\nDrag from card edges to link cards."
+    },
+    {
+      "id": "note-welcome",
+      "type": "file",
+      "x": 280,
+      "y": -40,
+      "width": 280,
+      "height": 200,
+      "file": "Welcome.md"
+    },
+    {
+      "id": "note-projects",
+      "type": "file",
+      "x": 280,
+      "y": 220,
+      "width": 280,
+      "height": 180,
+      "file": "Projects.md",
+      "color": "4"
+    },
+    {
+      "id": "group-1",
+      "type": "group",
+      "x": 240,
+      "y": -80,
+      "width": 360,
+      "height": 520,
+      "label": "Vault notes"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "fromNode": "welcome",
+      "fromSide": "right",
+      "toNode": "note-welcome",
+      "toSide": "left",
+      "toEnd": "arrow",
+      "label": "start here"
+    },
+    {
+      "id": "e2",
+      "fromNode": "note-welcome",
+      "fromSide": "bottom",
+      "toNode": "note-projects",
+      "toSide": "top",
+      "toEnd": "arrow"
+    }
+  ]
+}
+`,
+  },
 ]
 
 function loadFiles(): DemoFile[] {
@@ -197,12 +267,16 @@ export function demoWrite(id: string, content: string) {
 
 export function demoCreateNote(parentId: string, name: string, content: string): DriveFile {
   const id = `demo-${crypto.randomUUID()}`
-  const fileName = /\.base$/i.test(name)
+  const fileName = /\.base$/i.test(name) || /\.canvas$/i.test(name)
     ? name
     : name.endsWith('.md')
       ? name
       : `${name}.md`
-  const mimeType = /\.base$/i.test(fileName) ? 'application/x-obsidian-base' : 'text/markdown'
+  const mimeType = /\.base$/i.test(fileName)
+    ? 'application/x-obsidian-base'
+    : /\.canvas$/i.test(fileName)
+      ? 'application/x-obsidian-canvas'
+      : 'text/markdown'
   const files = loadFiles()
   files.push({
     id,

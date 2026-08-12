@@ -83,6 +83,7 @@ import {
   seedNoteContent,
 } from '../lib/noteNames'
 import { defaultBaseContent, ensureBaseFileName } from '../lib/bases'
+import { defaultCanvasContent, ensureCanvasFileName } from '../lib/canvas'
 import type {
   AuthProvider,
   AuthSession,
@@ -143,6 +144,7 @@ type AppActions = {
   saveActiveFile: () => Promise<void>
   createNote: (parentId: string, name: string) => Promise<void>
   createBase: (parentId: string, name: string) => Promise<void>
+  createCanvas: (parentId: string, name: string) => Promise<void>
   createDirectory: (parentId: string, name: string) => Promise<void>
   renameNode: (id: string, name: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
@@ -527,13 +529,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       setIndex(nextIndex)
-      const noteCount = textFiles.filter((f) => !/\.base$/i.test(f.name)).length
-      const baseCount = textFiles.length - noteCount
-      setStatusMessage(
-        baseCount > 0
-          ? `${noteCount} notes · ${baseCount} bases indexed`
-          : `${noteCount} notes indexed`,
-      )
+      const noteCount = textFiles.filter(
+        (f) => !/\.base$/i.test(f.name) && !/\.canvas$/i.test(f.name),
+      ).length
+      const baseCount = textFiles.filter((f) => /\.base$/i.test(f.name)).length
+      const canvasCount = textFiles.filter((f) => /\.canvas$/i.test(f.name)).length
+      const parts = [`${noteCount} notes`]
+      if (baseCount) parts.push(`${baseCount} bases`)
+      if (canvasCount) parts.push(`${canvasCount} canvases`)
+      setStatusMessage(`${parts.join(' · ')} indexed`)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load vault'
       setError(message)
@@ -823,6 +827,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [demo, local, refreshVault, openFile, ensureDriveToken],
   )
 
+  const createCanvas = useCallback(
+    async (parentId: string, name: string) => {
+      const fileName = ensureCanvasFileName(name)
+      const content = defaultCanvasContent()
+      const github = !demo && !local && sessionRef.current?.provider === 'github'
+      const file = demo
+        ? demoCreateNote(parentId, fileName, content)
+        : local
+          ? await localCreateNote(parentId, fileName, content)
+          : github
+            ? await githubCreateNote(
+                await ensureDriveToken(),
+                vaultRef.current!.folderId,
+                parentId,
+                fileName,
+                content,
+              )
+            : await createTextFile(
+                await ensureDriveToken(),
+                parentId,
+                fileName,
+                content,
+                'application/x-obsidian-canvas',
+              )
+      const resolvedName = file.name || fileName
+      const pathHint =
+        github && file.id.includes(':')
+          ? file.id.slice(file.id.indexOf(':') + 1)
+          : resolvedName
+      contentCache.current.set(file.id, content)
+      setIndex((prev) =>
+        upsertNote(
+          prev,
+          noteFromFile({ ...file, name: resolvedName }, pathHint, content),
+        ),
+      )
+      await openFile(file.id, { name: resolvedName, path: pathHint })
+      void refreshVault()
+    },
+    [demo, local, refreshVault, openFile, ensureDriveToken],
+  )
+
   const writeFileContent = useCallback(
     async (fileId: string, content: string) => {
       if (!demoRef.current && !localRef.current && !sessionRef.current) return
@@ -847,7 +893,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             name: existing.name,
             mimeType: /\.base$/i.test(existing.name)
               ? 'application/x-obsidian-base'
-              : 'text/markdown',
+              : /\.canvas$/i.test(existing.name)
+                ? 'application/x-obsidian-canvas'
+                : 'text/markdown',
             modifiedTime: new Date().toISOString(),
           },
           existing.path,
@@ -1004,6 +1052,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveActiveFile,
       createNote,
       createBase,
+      createCanvas,
       createDirectory,
       renameNode,
       deleteNode,
@@ -1048,6 +1097,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveActiveFile,
       createNote,
       createBase,
+      createCanvas,
       createDirectory,
       renameNode,
       deleteNode,

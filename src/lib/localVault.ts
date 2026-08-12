@@ -216,11 +216,12 @@ function isMarkdownName(name: string): boolean {
 }
 
 function isVaultTextName(name: string): boolean {
-  return isMarkdownName(name) || /\.base$/i.test(name)
+  return isMarkdownName(name) || /\.base$/i.test(name) || /\.canvas$/i.test(name)
 }
 
 function mimeForVaultFile(name: string): string {
   if (/\.base$/i.test(name)) return 'application/x-obsidian-base'
+  if (/\.canvas$/i.test(name)) return 'application/x-obsidian-canvas'
   return 'text/markdown'
 }
 
@@ -349,7 +350,7 @@ export async function localWrite(id: string, content: string): Promise<void> {
 export async function localCreateNote(parentId: string, name: string, content: string): Promise<DriveFile> {
   const parentPath = pathOf(parentId)
   const parent = await resolveDirectory(parentPath)
-  const fileName = /\.base$/i.test(name)
+  const fileName = /\.base$/i.test(name) || /\.canvas$/i.test(name)
     ? name
     : name.endsWith('.md')
       ? name

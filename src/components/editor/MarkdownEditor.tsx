@@ -6,7 +6,9 @@ import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
 import { isBaseFileName } from '../../lib/bases'
+import { isCanvasFileName } from '../../lib/canvas'
 import { BaseViewer } from '../bases/BaseViewer'
+import { CanvasViewer } from '../canvas/CanvasViewer'
 import { WysiwygEditor } from './WysiwygEditor'
 import { MarkdownWithBases } from './MarkdownWithBases'
 import './MarkdownEditor.css'
@@ -33,6 +35,7 @@ export function MarkdownEditor() {
     ?? index.notesById.get(activeFileId ?? '')?.name
     ?? ''
   const isBase = isBaseFileName(activeName)
+  const isCanvas = isCanvasFileName(activeName)
 
   const extensions = useMemo(
     () => [markdown({ base: markdownLanguage }), EditorView.lineWrapping, editorChrome],
@@ -47,6 +50,16 @@ export function MarkdownEditor() {
         <h2>No file open</h2>
         <p>Select a note from the file explorer, or press Ctrl/Cmd+O to quick switch.</p>
       </div>
+    )
+  }
+
+  if (isCanvas) {
+    return (
+      <CanvasViewer
+        key={activeFileId}
+        content={editorContent}
+        onChange={setEditorContent}
+      />
     )
   }
 
