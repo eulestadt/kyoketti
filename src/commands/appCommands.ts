@@ -20,7 +20,8 @@ import {
   shiftDate,
 } from '../lib/dailyNotes'
 import { isBookmarked, toggleBookmark } from '../lib/bookmarks'
-import type { NoteMeta, OpenTab, VaultConfig, VaultIndex, ViewMode } from '../types'
+import type { NoteMeta, OpenTab, VaultConfig, ViewMode } from '../types'
+import type { VaultIndex } from '../lib/vaultIndex'
 
 export type CommandHost = {
   vault: VaultConfig | null
