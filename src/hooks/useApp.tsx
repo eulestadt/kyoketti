@@ -82,11 +82,14 @@ import {
   noteTitleFromFileName,
   seedNoteContent,
 } from '../lib/noteNames'
-import { defaultBaseContent, ensureBaseFileName } from '../lib/bases'
-import { defaultCanvasContent, ensureCanvasFileName } from '../lib/canvas'
+import { defaultBaseContent, ensureBaseFileName, isBaseFileName } from '../lib/bases'
+import { defaultCanvasContent, ensureCanvasFileName, isCanvasFileName } from '../lib/canvas'
+import { childNames, findVaultNode, uniqueCopyName } from '../lib/vaultTree'
 import type {
   AuthProvider,
   AuthSession,
+  CreateFileOptions,
+  CreatedFile,
   LeftPanel,
   OpenTab,
   RightPanel,
@@ -140,12 +143,16 @@ type AppActions = {
   refreshVault: () => Promise<void>
   openFile: (fileId: string, hint?: { name?: string; path?: string }) => Promise<void>
   closeTab: (fileId: string) => void
+  closeOtherTabs: (fileId: string) => void
+  closeAllTabs: () => void
+  closeTabsToTheRight: (fileId: string) => void
   setEditorContent: (content: string) => void
   saveActiveFile: () => Promise<void>
-  createNote: (parentId: string, name: string) => Promise<void>
-  createBase: (parentId: string, name: string) => Promise<void>
-  createCanvas: (parentId: string, name: string) => Promise<void>
+  createNote: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
+  createBase: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
+  createCanvas: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
   createDirectory: (parentId: string, name: string) => Promise<void>
+  duplicateFile: (fileId: string) => Promise<void>
   renameNode: (id: string, name: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   writeFileContent: (fileId: string, content: string) => Promise<void>
@@ -675,7 +682,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (fileId: string) => {
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== fileId)
-        if (activeFileId === fileId) {
+        if (activeFileIdRef.current === fileId) {
           const fallback = next[next.length - 1]
           if (fallback) void openFile(fallback.id)
           else {
@@ -686,7 +693,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return next
       })
     },
-    [activeFileId, openFile],
+    [openFile],
+  )
+
+  const closeOtherTabs = useCallback(
+    (fileId: string) => {
+      setTabs((prev) => {
+        const keep = prev.filter((t) => t.id === fileId)
+        if (!keep.length) return prev
+        if (activeFileIdRef.current !== fileId) void openFile(fileId)
+        return keep
+      })
+    },
+    [openFile],
+  )
+
+  const closeAllTabs = useCallback(() => {
+    setTabs([])
+    setActiveFileId(null)
+    setEditorContentState('')
+  }, [])
+
+  const closeTabsToTheRight = useCallback(
+    (fileId: string) => {
+      setTabs((prev) => {
+        const idx = prev.findIndex((t) => t.id === fileId)
+        if (idx < 0) return prev
+        const next = prev.slice(0, idx + 1)
+        if (activeFileIdRef.current && !next.some((t) => t.id === activeFileIdRef.current)) {
+          void openFile(fileId)
+        }
+        return next
+      })
+    },
+    [openFile],
   )
 
   const saveActiveFile = useCallback(async () => {
@@ -746,9 +786,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const createNote = useCallback(
-    async (parentId: string, name: string) => {
+    async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
       const fileName = ensureMarkdownFileName(name)
-      const content = seedNoteContent(fileName)
+      const content = options?.content ?? seedNoteContent(fileName)
       const github = !demo && !local && sessionRef.current?.provider === 'github'
       const file = demo
         ? demoCreateNote(parentId, fileName, content)
@@ -779,16 +819,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         ),
       )
-      await openFile(file.id, { name: resolvedName, path: pathHint })
+      if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
       void refreshVault()
+      return { id: file.id, name: resolvedName, path: pathHint }
     },
     [demo, local, refreshVault, openFile, ensureDriveToken],
   )
 
   const createBase = useCallback(
-    async (parentId: string, name: string) => {
+    async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
       const fileName = ensureBaseFileName(name)
-      const content = defaultBaseContent()
+      const content = options?.content ?? defaultBaseContent()
       const github = !demo && !local && sessionRef.current?.provider === 'github'
       const file = demo
         ? demoCreateNote(parentId, fileName, content)
@@ -821,16 +862,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           noteFromFile({ ...file, name: resolvedName }, pathHint, content),
         ),
       )
-      await openFile(file.id, { name: resolvedName, path: pathHint })
+      if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
       void refreshVault()
+      return { id: file.id, name: resolvedName, path: pathHint }
     },
     [demo, local, refreshVault, openFile, ensureDriveToken],
   )
 
   const createCanvas = useCallback(
-    async (parentId: string, name: string) => {
+    async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
       const fileName = ensureCanvasFileName(name)
-      const content = defaultCanvasContent()
+      const content = options?.content ?? defaultCanvasContent()
       const github = !demo && !local && sessionRef.current?.provider === 'github'
       const file = demo
         ? demoCreateNote(parentId, fileName, content)
@@ -863,10 +905,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
           noteFromFile({ ...file, name: resolvedName }, pathHint, content),
         ),
       )
-      await openFile(file.id, { name: resolvedName, path: pathHint })
+      if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
       void refreshVault()
+      return { id: file.id, name: resolvedName, path: pathHint }
     },
     [demo, local, refreshVault, openFile, ensureDriveToken],
+  )
+
+  const duplicateFile = useCallback(
+    async (fileId: string) => {
+      const node = findVaultNode(treeRef.current, fileId)
+      if (!node || node.isFolder) return
+      const parentId = node.parentId ?? vaultRef.current?.folderId
+      if (!parentId) return
+      const parent = findVaultNode(treeRef.current, parentId) ?? treeRef.current
+      const copyName = uniqueCopyName(node.name, childNames(parent))
+      let content =
+        contentCache.current.get(fileId) ?? indexRef.current.notesById.get(fileId)?.content
+      if (content == null) {
+        if (demoRef.current) content = demoRead(fileId)
+        else if (localRef.current) content = await localRead(fileId)
+        else {
+          const accessToken = await ensureDriveToken()
+          content =
+            sessionRef.current?.provider === 'github'
+              ? await githubRead(accessToken, vaultRef.current?.folderId ?? '', fileId)
+              : await downloadTextFile(accessToken, fileId)
+        }
+      }
+      const options: CreateFileOptions = { content, open: true }
+      if (isBaseFileName(node.name)) await createBase(parentId, copyName, options)
+      else if (isCanvasFileName(node.name)) await createCanvas(parentId, copyName, options)
+      else await createNote(parentId, copyName, options)
+    },
+    [createBase, createCanvas, createNote, ensureDriveToken],
   )
 
   const writeFileContent = useCallback(
@@ -1048,12 +1120,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshVault,
       openFile,
       closeTab,
+      closeOtherTabs,
+      closeAllTabs,
+      closeTabsToTheRight,
       setEditorContent,
       saveActiveFile,
       createNote,
       createBase,
       createCanvas,
       createDirectory,
+      duplicateFile,
       renameNode,
       deleteNode,
       writeFileContent,
@@ -1093,12 +1169,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshVault,
       openFile,
       closeTab,
+      closeOtherTabs,
+      closeAllTabs,
+      closeTabsToTheRight,
       setEditorContent,
       saveActiveFile,
       createNote,
       createBase,
       createCanvas,
       createDirectory,
+      duplicateFile,
       renameNode,
       deleteNode,
       writeFileContent,

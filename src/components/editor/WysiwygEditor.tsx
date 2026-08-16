@@ -15,6 +15,8 @@ import {
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
 import { resolveNoteRef } from '../../lib/vaultIndex'
+import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { previewMenuItems, type PreviewMenuTarget } from '../ui/previewMenu'
 import {
   createEmptyTableElement,
   deleteTableColumn,
@@ -243,7 +245,7 @@ function outdentSelection() {
 }
 
 export function WysiwygEditor() {
-  const { editorContent, setEditorContent, openNoteByTitle, index, activeFileId } = useApp()
+  const { editorContent, setEditorContent, openNoteByTitle, openFile, index, activeFileId } = useApp()
   const surfaceRef = useRef<HTMLDivElement>(null)
   const lastFileId = useRef<string | null>(null)
   const lastSerialized = useRef(editorContent)
@@ -257,6 +259,7 @@ export function WysiwygEditor() {
     col: number
     isHeader: boolean
   } | null>(null)
+  const { menu: previewMenu, open: openPreviewMenu, close: closePreviewMenu } = useContextMenu<PreviewMenuTarget>()
 
   function toggleToolbar() {
     setToolbarVisible((prev) => {
@@ -361,18 +364,39 @@ export function WysiwygEditor() {
   function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement
     const cell = target.closest('th, td') as HTMLElement | null
-    if (!cell || !surfaceRef.current?.contains(cell)) return
-    const pos = getCellPosition(cell)
-    if (!pos) return
-    e.preventDefault()
-    setTableMenu({
-      x: e.clientX,
-      y: e.clientY,
-      table: pos.table,
-      row: pos.row,
-      col: pos.col,
-      isHeader: pos.isHeader,
-    })
+    if (cell && surfaceRef.current?.contains(cell)) {
+      const pos = getCellPosition(cell)
+      if (pos) {
+        e.preventDefault()
+        closePreviewMenu()
+        setTableMenu({
+          x: e.clientX,
+          y: e.clientY,
+          table: pos.table,
+          row: pos.row,
+          col: pos.col,
+          isHeader: pos.isHeader,
+        })
+        return
+      }
+    }
+    const internal = target.closest('a.internal-link') as HTMLAnchorElement | null
+    const image = target.closest('img') as HTMLImageElement | null
+    const external = target.closest('a') as HTMLAnchorElement | null
+    if (internal?.dataset.note) {
+      setTableMenu(null)
+      openPreviewMenu(e, { kind: 'link', title: internal.dataset.note })
+      return
+    }
+    if (image) {
+      setTableMenu(null)
+      openPreviewMenu(e, { kind: 'image', img: image })
+      return
+    }
+    if (external?.href && !external.classList.contains('internal-link')) {
+      setTableMenu(null)
+      openPreviewMenu(e, { kind: 'url', href: external.href })
+    }
   }
 
   function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote' | 'table') {
@@ -745,6 +769,21 @@ export function WysiwygEditor() {
             Sort descending
           </button>
         </div>
+      )}
+      {previewMenu && (
+        <ContextMenu
+          x={previewMenu.x}
+          y={previewMenu.y}
+          onClose={closePreviewMenu}
+          items={previewMenuItems(previewMenu.data, {
+            index,
+            fromPath: activeFileId ? index.notesById.get(activeFileId)?.path : undefined,
+            openFile,
+            openLink: (title) => {
+              void openNoteByTitle(title, activeFileId ? index.notesById.get(activeFileId)?.path : undefined)
+            },
+          })}
+        />
       )}
     </div>
   )

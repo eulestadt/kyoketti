@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { fuzzyMatch } from '../../lib/vaultIndex'
+import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { noteMenuItems } from '../ui/noteMenu'
+import type { NoteMeta } from '../../types'
 import './GlobalSearch.css'
 
 export function GlobalSearch() {
-  const { index, openFile } = useApp()
+  const { index, openFile, renameNode, deleteNode, duplicateFile } = useApp()
   const [query, setQuery] = useState('')
+  const { menu, open, close } = useContextMenu<NoteMeta>()
 
   const results = useMemo(() => {
     const q = query.trim()
@@ -34,7 +38,7 @@ export function GlobalSearch() {
       />
       <ul>
         {results.map(({ note, snippet }) => (
-          <li key={note.id}>
+          <li key={note.id} onContextMenu={(e) => open(e, note)}>
             <button onClick={() => void openFile(note.id)}>
               <strong>{note.title}</strong>
               <span>{note.path}</span>
@@ -43,6 +47,19 @@ export function GlobalSearch() {
           </li>
         ))}
       </ul>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={close}
+          items={noteMenuItems(menu.data, { openFile, renameNode, deleteNode, duplicateFile, index }, {
+            open: true,
+            rename: true,
+            duplicate: true,
+            remove: true,
+          })}
+        />
+      )}
     </div>
   )
 }

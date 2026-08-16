@@ -37,6 +37,17 @@ export type OpenTab = {
   dirty: boolean
 }
 
+export type CreatedFile = {
+  id: string
+  name: string
+  path: string
+}
+
+export type CreateFileOptions = {
+  content?: string
+  open?: boolean
+}
+
 export type ViewMode = 'source' | 'wysiwyg' | 'live' | 'reading'
 export type RightPanel = 'backlinks' | 'outline' | 'tags' | null
 export type LeftPanel = 'files' | 'search' | 'graph'

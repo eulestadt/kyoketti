@@ -1,10 +1,30 @@
 import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { buildOutline } from '../../lib/markdown'
+import { compactItems, ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { noteMenuItems } from '../ui/noteMenu'
+import { copyText } from '../../lib/clipboard'
+import type { NoteMeta } from '../../types'
 import './RightSidebar.css'
 
+type SidebarMenu =
+  | { kind: 'note'; note: NoteMeta }
+  | { kind: 'heading'; text: string }
+  | { kind: 'tag'; tag: string; ids: string[] }
+
 export function RightSidebar() {
-  const { rightPanel, activeFileId, index, editorContent, openFile, setRightPanel } = useApp()
+  const {
+    rightPanel,
+    activeFileId,
+    index,
+    editorContent,
+    openFile,
+    setRightPanel,
+    renameNode,
+    deleteNode,
+    duplicateFile,
+  } = useApp()
+  const { menu, open, close } = useContextMenu<SidebarMenu>()
 
   const backlinks = useMemo(() => {
     if (!activeFileId) return []
@@ -43,7 +63,7 @@ export function RightSidebar() {
           <ul>
             {backlinks.map((note) =>
               note ? (
-                <li key={note.id}>
+                <li key={note.id} onContextMenu={(e) => open(e, { kind: 'note', note })}>
                   <button onClick={() => void openFile(note.id)}>{note.title}</button>
                 </li>
               ) : null,
@@ -58,7 +78,11 @@ export function RightSidebar() {
           {outline.length === 0 && <p className="muted">No headings in this note.</p>}
           <ul className="outline-list">
             {outline.map((item) => (
-              <li key={`${item.line}-${item.text}`} style={{ paddingLeft: (item.level - 1) * 12 }}>
+              <li
+                key={`${item.line}-${item.text}`}
+                style={{ paddingLeft: (item.level - 1) * 12 }}
+                onContextMenu={(e) => open(e, { kind: 'heading', text: item.text })}
+              >
                 {item.text}
               </li>
             ))}
@@ -72,7 +96,7 @@ export function RightSidebar() {
           {tags.length === 0 && <p className="muted">No tags in this vault.</p>}
           <ul className="tag-list">
             {tags.map(({ tag, count, ids }) => (
-              <li key={tag}>
+              <li key={tag} onContextMenu={(e) => open(e, { kind: 'tag', tag, ids })}>
                 <button
                   onClick={() => {
                     const first = ids[0]
@@ -87,6 +111,54 @@ export function RightSidebar() {
           </ul>
         </div>
       )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={close}
+          items={sidebarMenuItems(menu.data, {
+            openFile,
+            renameNode,
+            deleteNode,
+            duplicateFile,
+            index,
+          })}
+        />
+      )}
     </aside>
   )
+}
+
+function sidebarMenuItems(
+  data: SidebarMenu,
+  actions: {
+    openFile: (id: string) => Promise<void> | void
+    renameNode: (id: string, name: string) => Promise<void> | void
+    deleteNode: (id: string) => Promise<void> | void
+    duplicateFile: (id: string) => Promise<void> | void
+    index: ReturnType<typeof useApp>['index']
+  },
+) {
+  if (data.kind === 'note') {
+    return noteMenuItems(data.note, actions, {
+      open: true,
+      rename: true,
+      duplicate: true,
+      remove: true,
+    })
+  }
+  if (data.kind === 'heading') {
+    return compactItems([{ label: 'Copy heading', onClick: () => void copyText(data.text) }])
+  }
+  return compactItems([
+    {
+      label: 'Open first note',
+      onClick: () => {
+        const first = data.ids[0]
+        if (first) void actions.openFile(first)
+      },
+    },
+    { label: 'Copy tag', onClick: () => void copyText(`#${data.tag}`) },
+  ])
 }

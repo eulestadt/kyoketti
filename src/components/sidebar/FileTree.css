@@ -16,6 +16,7 @@
   align-items: center;
   border-radius: 4px;
   min-height: 26px;
+  cursor: context-menu;
 }
 
 .tree-row:hover,

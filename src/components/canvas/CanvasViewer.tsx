@@ -35,7 +35,14 @@ import {
 } from '../../lib/canvas'
 import { renderMarkdownToHtml } from '../../lib/markdown'
 import { resolveNoteRef } from '../../lib/vaultIndex'
+import { compactItems, ContextMenu, type ContextMenuItem } from '../ui/ContextMenu'
+import { copyText, copyWikilink } from '../../lib/clipboard'
 import './CanvasViewer.css'
+
+type CanvasMenu =
+  | { kind: 'stage'; x: number; y: number; world: Point }
+  | { kind: 'node'; x: number; y: number; id: string }
+  | { kind: 'edge'; x: number; y: number; id: string }
 
 type Props = {
   content: string
@@ -65,7 +72,7 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
   const [spaceDown, setSpaceDown] = useState(false)
   const [camera, setCamera] = useState({ x: 80, y: 80, zoom: 1 })
   const [drag, setDrag] = useState<DragState>(null)
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; world: Point } | null>(null)
+  const [contextMenu, setContextMenu] = useState<CanvasMenu | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const dataRef = useRef(data)
   dataRef.current = data
@@ -109,30 +116,34 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
     [commit],
   )
 
-  const deleteSelection = useCallback(() => {
-    if (readOnly) return
-    commit((prev) => {
-      const removeNodes = selectedNodeIds
-      const removeEdges = new Set(
-        prev.edges
-          .filter(
-            (e) =>
-              e.id === selectedEdgeId ||
-              removeNodes.has(e.fromNode) ||
-              removeNodes.has(e.toNode),
-          )
-          .map((e) => e.id),
-      )
-      if (selectedEdgeId) removeEdges.add(selectedEdgeId)
-      return {
-        nodes: prev.nodes.filter((n) => !removeNodes.has(n.id)),
-        edges: prev.edges.filter((e) => !removeEdges.has(e.id)),
-      }
-    })
-    setSelectedNodeIds(new Set())
-    setSelectedEdgeId(null)
-    setEditingNodeId(null)
-  }, [commit, readOnly, selectedEdgeId, selectedNodeIds])
+  const deleteSelection = useCallback(
+    (override?: { nodeIds?: Iterable<string>; edgeId?: string | null }) => {
+      if (readOnly) return
+      const removeNodes = new Set(override?.nodeIds ?? selectedNodeIds)
+      const extraEdge = override && 'edgeId' in override ? override.edgeId : selectedEdgeId
+      commit((prev) => {
+        const removeEdges = new Set(
+          prev.edges
+            .filter(
+              (e) =>
+                e.id === extraEdge ||
+                removeNodes.has(e.fromNode) ||
+                removeNodes.has(e.toNode),
+            )
+            .map((e) => e.id),
+        )
+        if (extraEdge) removeEdges.add(extraEdge)
+        return {
+          nodes: prev.nodes.filter((n) => !removeNodes.has(n.id)),
+          edges: prev.edges.filter((e) => !removeEdges.has(e.id)),
+        }
+      })
+      setSelectedNodeIds(new Set())
+      setSelectedEdgeId(null)
+      setEditingNodeId(null)
+    },
+    [commit, readOnly, selectedEdgeId, selectedNodeIds],
+  )
 
   const addTextNode = useCallback(
     (at?: Point, text = '') => {
@@ -518,12 +529,177 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
 
   function onStageContextMenu(e: React.MouseEvent) {
     e.preventDefault()
-    if (readOnly) return
     setContextMenu({
+      kind: 'stage',
       x: e.clientX,
       y: e.clientY,
       world: screenToWorld(e.clientX, e.clientY),
     })
+  }
+
+  function onNodeContextMenu(e: React.MouseEvent, id: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setSelectedEdgeId(null)
+    setSelectedNodeIds(new Set([id]))
+    setContextMenu({ kind: 'node', x: e.clientX, y: e.clientY, id })
+  }
+
+  function onEdgeContextMenu(e: React.MouseEvent, id: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setSelectedNodeIds(new Set())
+    setSelectedEdgeId(id)
+    setContextMenu({ kind: 'edge', x: e.clientX, y: e.clientY, id })
+  }
+
+  function duplicateNode(id: string) {
+    if (readOnly) return
+    const node = dataRef.current.nodes.find((n) => n.id === id)
+    if (!node) return
+    const copy = { ...node, id: newCanvasId(), x: node.x + 32, y: node.y + 32 }
+    commit((prev) => ({ ...prev, nodes: [...prev.nodes, copy] }))
+    setSelectedNodeIds(new Set([copy.id]))
+  }
+
+  function focusCanvasNode(id: string) {
+    const n = dataRef.current.nodes.find((node) => node.id === id)
+    const stage = stageRef.current
+    if (!n || !stage) return
+    setSelectedNodeIds(new Set([id]))
+    setSelectedEdgeId(null)
+    setCamera((c) => ({
+      ...c,
+      x: stage.clientWidth / 2 - (n.x + n.width / 2) * c.zoom,
+      y: stage.clientHeight / 2 - (n.y + n.height / 2) * c.zoom,
+    }))
+  }
+
+  async function convertTextToFile(id: string) {
+    if (readOnly || !vault?.folderId) return
+    const node = dataRef.current.nodes.find((n) => n.id === id)
+    if (!node || node.type !== 'text') return
+    const name = window.prompt('File name', 'Untitled')
+    if (!name?.trim()) return
+    const body = node.text.endsWith('\n') ? node.text : `${node.text}\n`
+    const created = await createNote(vault.folderId, name.trim(), { content: body, open: false })
+    commit((prev) => ({
+      ...prev,
+      nodes: prev.nodes.map((n) =>
+        n.id === id
+          ? {
+              id: n.id,
+              type: 'file' as const,
+              x: n.x,
+              y: n.y,
+              width: n.width,
+              height: n.height,
+              color: n.color,
+              file: created.path || created.name,
+            }
+          : n,
+      ),
+    }))
+  }
+
+  async function swapFileCard(id: string) {
+    if (readOnly) return
+    const node = dataRef.current.nodes.find((n) => n.id === id)
+    if (!node || node.type !== 'file') return
+    const title = window.prompt('Note name or path', node.file)
+    if (!title?.trim()) return
+    const note = resolveNoteRef(index, title.trim())
+    updateNode(id, { file: note?.path ?? title.trim() } as Partial<CanvasNode>)
+  }
+
+  function canvasMenuItems(menu: CanvasMenu): ContextMenuItem[] {
+    if (menu.kind === 'stage') {
+      return compactItems([
+        !readOnly && { label: 'Add text card', onClick: () => addTextNode(menu.world) },
+        !readOnly && { label: 'Add note from vault', onClick: () => void addFileNode(menu.world) },
+        !readOnly && { label: 'Add web page', onClick: () => addLinkNode(menu.world) },
+        !readOnly && { label: 'Create group', onClick: () => addGroup(menu.world) },
+        { type: 'separator' as const },
+        { label: 'Zoom to fit', onClick: zoomToFit },
+      ])
+    }
+    if (menu.kind === 'edge') {
+      const edge = data.edges.find((e) => e.id === menu.id)
+      if (!edge) return []
+      return compactItems([
+        !readOnly && {
+          label: 'Edit label',
+          onClick: () => {
+            setEditingEdgeId(edge.id)
+            setSelectedEdgeId(edge.id)
+          },
+        },
+        { label: 'Go to source', onClick: () => focusCanvasNode(edge.fromNode) },
+        { label: 'Go to target', onClick: () => focusCanvasNode(edge.toNode) },
+        !readOnly && { type: 'separator' as const },
+        !readOnly && {
+          label: 'Delete',
+          danger: true,
+          onClick: () => deleteSelection({ nodeIds: [], edgeId: edge.id }),
+        },
+      ])
+    }
+    const node = data.nodes.find((n) => n.id === menu.id)
+    if (!node) return []
+    return compactItems([
+      !readOnly && (node.type === 'text' || node.type === 'group') && {
+        label: 'Edit',
+        onClick: () => setEditingNodeId(node.id),
+      },
+      node.type === 'file' && {
+        label: 'Open',
+        onClick: async () => {
+          const note = resolveNoteRef(index, node.file)
+          if (note) await openFile(note.id)
+          else await openNoteByTitle(node.file.replace(/\.(md|markdown)$/i, ''))
+        },
+      },
+      node.type === 'file' && {
+        label: 'Copy wikilink',
+        onClick: () => {
+          const note = resolveNoteRef(index, node.file)
+          void copyWikilink(note?.name ?? node.file, note?.path ?? node.file, index)
+        },
+      },
+      !readOnly && node.type === 'file' && {
+        label: 'Swap file',
+        onClick: () => void swapFileCard(node.id),
+      },
+      node.type === 'link' && {
+        label: 'Open in browser',
+        onClick: () => {
+          window.open(node.url, '_blank', 'noopener,noreferrer')
+        },
+      },
+      node.type === 'link' && {
+        label: 'Copy URL',
+        onClick: () => void copyText(node.url),
+      },
+      Boolean(!readOnly && node.type === 'text' && vault?.folderId) && {
+        label: 'Convert to file',
+        onClick: () => void convertTextToFile(node.id),
+      },
+      !readOnly && { label: 'Duplicate', onClick: () => duplicateNode(node.id) },
+      node.type === 'text' && {
+        label: 'Copy text',
+        onClick: () => void copyText(node.text),
+      },
+      Boolean(node.type === 'group' && node.label) && {
+        label: 'Copy label',
+        onClick: () => void copyText(node.type === 'group' ? node.label ?? '' : ''),
+      },
+      !readOnly && { type: 'separator' as const },
+      !readOnly && {
+        label: 'Delete',
+        danger: true,
+        onClick: () => deleteSelection({ nodeIds: [node.id], edgeId: null }),
+      },
+    ])
   }
 
   function setColorOnSelection(color: string | undefined) {
@@ -587,7 +763,7 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
             <button type="button" className="canvas-tool" title="Create group" onClick={() => addGroup()}>
               <Group size={14} /> Group
             </button>
-            <button type="button" className="canvas-tool" title="Delete selection" onClick={deleteSelection}>
+            <button type="button" className="canvas-tool" title="Delete selection" onClick={() => deleteSelection()}>
               <Trash2 size={14} />
             </button>
           </>
@@ -659,6 +835,7 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
                         setSelectedNodeIds(new Set())
                         setEditingNodeId(null)
                       }}
+                      onContextMenu={(ev) => onEdgeContextMenu(ev, edge.id)}
                       onDoubleClick={(ev) => {
                         ev.stopPropagation()
                         setEditingEdgeId(edge.id)
@@ -785,6 +962,7 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
                 if (note) await openFile(note.id)
                 else await openNoteByTitle(path.replace(/\.(md|markdown)$/i, ''))
               }}
+              onContextMenu={(e) => onNodeContextMenu(e, node.id)}
               screenToWorld={screenToWorld}
             />
           ))}
@@ -828,26 +1006,19 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
               title="Clear color"
               onClick={() => setColorOnSelection(undefined)}
             />
-            <button type="button" className="canvas-tool" onClick={deleteSelection} title="Delete">
+            <button type="button" className="canvas-tool" onClick={() => deleteSelection()} title="Delete">
               <Trash2 size={13} />
             </button>
           </div>
         )}
 
         {contextMenu && (
-          <div
-            className="canvas-context"
-            style={{
-              left: contextMenu.x - (stageRef.current?.getBoundingClientRect().left ?? 0),
-              top: contextMenu.y - (stageRef.current?.getBoundingClientRect().top ?? 0),
-            }}
-          >
-            <button type="button" onClick={() => addTextNode(contextMenu.world)}>Add text card</button>
-            <button type="button" onClick={() => void addFileNode(contextMenu.world)}>Add note from vault</button>
-            <button type="button" onClick={() => addLinkNode(contextMenu.world)}>Add web page</button>
-            <button type="button" onClick={() => addGroup(contextMenu.world)}>Create group</button>
-            <button type="button" onClick={zoomToFit}>Zoom to fit</button>
-          </div>
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={canvasMenuItems(contextMenu)}
+            onClose={() => setContextMenu(null)}
+          />
         )}
       </div>
     </div>
@@ -868,6 +1039,7 @@ function CanvasCard({
   onChangeText,
   onChangeLabel,
   onOpenFile,
+  onContextMenu,
   screenToWorld,
 }: {
   node: CanvasNode
@@ -883,6 +1055,7 @@ function CanvasCard({
   onChangeText: (text: string) => void
   onChangeLabel: (label: string) => void
   onOpenFile: (path: string) => void
+  onContextMenu: (e: React.MouseEvent) => void
   screenToWorld: (x: number, y: number) => Point
 }) {
   const { index } = useApp()
@@ -922,6 +1095,7 @@ function CanvasCard({
         if (node.type === 'text' || node.type === 'group') onEdit()
         if (node.type === 'file') void onOpenFile(node.file)
       }}
+      onContextMenu={onContextMenu}
     >
       <div className="canvas-node-header">
         {node.type === 'text' && <StickyNote size={12} />}

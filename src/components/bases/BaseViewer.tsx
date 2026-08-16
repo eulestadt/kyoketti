@@ -29,6 +29,8 @@ import { setFrontmatterProperty } from '../../lib/bases/frontmatter'
 import { countFilterConditions } from '../../lib/bases/filterUi'
 import { resolveNoteRef } from '../../lib/vaultIndex'
 import { FilterPanel, filterButtonLabel } from './FilterPanel'
+import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { noteMenuItems } from '../ui/noteMenu'
 import './BaseViewer.css'
 
 type Props = {
@@ -56,7 +58,7 @@ export function BaseViewer({
   thisFileId,
   readOnly = false,
 }: Props) {
-  const { index, openFile, openNoteByTitle, createNote, vault, writeFileContent } = useApp()
+  const { index, openFile, openNoteByTitle, createNote, vault, writeFileContent, renameNode, duplicateFile, deleteNode } = useApp()
   const parsed = useMemo(() => parseBaseConfig(content || defaultBaseContent()), [content])
   const [config, setConfig] = useState<BaseConfig>(parsed.config)
   const [activeViewIndex, setActiveViewIndex] = useState(0)
@@ -67,6 +69,7 @@ export function BaseViewer({
   const [sortOpen, setSortOpen] = useState(false)
   const [editing, setEditing] = useState<{ rowId: string; prop: string } | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const { menu: rowMenu, open: openRowMenu, close: closeRowMenu } = useContextMenu<BaseRow>()
 
   useEffect(() => {
     setConfig(parsed.config)
@@ -284,7 +287,11 @@ export function BaseViewer({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id}>
+            <tr
+              key={row.id}
+              onContextMenu={(e) => openRowMenu(e, row)}
+              onDoubleClick={() => void openRow(row)}
+            >
               {columns.map((col) => (
                 <td key={col}>{renderCell(row, col)}</td>
               ))}
@@ -310,7 +317,11 @@ export function BaseViewer({
     return (
       <ul className="base-list">
         {rows.map((row) => (
-          <li key={row.id} className="base-list-item">
+          <li
+            key={row.id}
+            className="base-list-item"
+            onContextMenu={(e) => openRowMenu(e, row)}
+          >
             <button type="button" className="title" onClick={() => void openRow(row)}>
               {row.file.basename}
             </button>
@@ -333,7 +344,13 @@ export function BaseViewer({
     return (
       <div className="base-cards">
         {rows.map((row) => (
-          <button key={row.id} type="button" className="base-card" onClick={() => void openRow(row)}>
+          <button
+            key={row.id}
+            type="button"
+            className="base-card"
+            onClick={() => void openRow(row)}
+            onContextMenu={(e) => openRowMenu(e, row)}
+          >
             <h3>{row.file.basename}</h3>
             <div className="card-props">
               {metaCols.map((col) => (
@@ -672,6 +689,27 @@ export function BaseViewer({
         </div>
       </div>
       {renderBody()}
+      {rowMenu && (
+        <ContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          onClose={closeRowMenu}
+          items={noteMenuItems(
+            {
+              id: rowMenu.data.id,
+              name: rowMenu.data.file.name,
+              path: rowMenu.data.file.path,
+            },
+            { openFile, renameNode, deleteNode, duplicateFile, index },
+            {
+              open: true,
+              rename: !readOnly && !embedded,
+              duplicate: !readOnly && !embedded,
+              remove: !readOnly && !embedded,
+            },
+          )}
+        />
+      )}
     </div>
   )
 }

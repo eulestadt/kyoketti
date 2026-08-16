@@ -6,6 +6,8 @@ import { isCanvasFileName } from '../../lib/canvas'
 import { resolveNoteRef } from '../../lib/vaultIndex'
 import { BaseEmbed } from '../bases/BaseViewer'
 import { CanvasEmbed } from '../canvas/CanvasViewer'
+import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { previewMenuItems, type PreviewMenuTarget } from '../ui/previewMenu'
 
 type Segment =
   | { kind: 'html'; html: string }
@@ -91,15 +93,34 @@ export function MarkdownWithBases({
   thisFileId?: string
   onInternalClick: (title: string) => void
 }) {
-  const { index } = useApp()
+  const { index, openFile } = useApp()
+  const { menu, open, close } = useContextMenu<PreviewMenuTarget>()
 
   const segments = useMemo(() => splitEmbedSegments(content), [content])
 
+  const fromPath = thisFileId ? index.notesById.get(thisFileId)?.path : undefined
+
   const resolveHref = (title: string) => {
-    const note = resolveNoteRef(index, title, {
-      fromPath: thisFileId ? index.notesById.get(thisFileId)?.path : undefined,
-    })
+    const note = resolveNoteRef(index, title, { fromPath })
     return note ? `#note/${note.id}` : null
+  }
+
+  function onPreviewContextMenu(e: React.MouseEvent) {
+    const target = e.target as HTMLElement
+    const internal = target.closest('a.internal-link') as HTMLAnchorElement | null
+    const image = target.closest('img') as HTMLImageElement | null
+    const external = target.closest('a') as HTMLAnchorElement | null
+    if (internal?.dataset.note) {
+      open(e, { kind: 'link', title: internal.dataset.note })
+      return
+    }
+    if (image) {
+      open(e, { kind: 'image', img: image })
+      return
+    }
+    if (external?.href && !external.classList.contains('internal-link')) {
+      open(e, { kind: 'url', href: external.href })
+    }
   }
 
   return (
@@ -121,6 +142,7 @@ export function MarkdownWithBases({
                 const title = link.dataset.note
                 if (title) onInternalClick(title)
               }}
+              onContextMenu={onPreviewContextMenu}
             />
           )
         }
@@ -163,6 +185,19 @@ export function MarkdownWithBases({
           />
         )
       })}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={close}
+          items={previewMenuItems(menu.data, {
+            index,
+            fromPath,
+            openFile,
+            openLink: onInternalClick,
+          })}
+        />
+      )}
     </div>
   )
 }

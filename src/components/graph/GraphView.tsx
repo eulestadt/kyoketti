@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
 import { buildGraph } from '../../lib/vaultIndex'
+import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
+import { noteMenuItems } from '../ui/noteMenu'
 import './GraphView.css'
 
 type SimNode = {
@@ -15,10 +17,11 @@ type SimNode = {
 }
 
 export function GraphView() {
-  const { index, openFile, activeFileId } = useApp()
+  const { index, openFile, activeFileId, renameNode, deleteNode, duplicateFile } = useApp()
   const { theme } = useTheme()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const graph = useMemo(() => buildGraph(index), [index])
+  const { menu, open, close } = useContextMenu<{ id: string }>()
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -77,6 +80,16 @@ export function GraphView() {
       if (hit) void openFile(hit.id)
     }
     canvas.addEventListener('click', onClick)
+
+    const onContextMenu = (event: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      const hit = nodes.find((n) => Math.hypot(n.x - x, n.y - y) < 16)
+      if (!hit) return
+      open(event, { id: hit.id })
+    }
+    canvas.addEventListener('contextmenu', onContextMenu)
 
     const tick = () => {
       if (!running) return
@@ -158,8 +171,9 @@ export function GraphView() {
       cancelAnimationFrame(frame)
       window.removeEventListener('resize', resize)
       canvas.removeEventListener('click', onClick)
+      canvas.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [graph, openFile, activeFileId, theme])
+  }, [graph, openFile, activeFileId, theme, open])
 
   return (
     <div className="graph-view">
@@ -170,6 +184,23 @@ export function GraphView() {
         </span>
       </div>
       <canvas ref={canvasRef} />
+      {menu && (() => {
+        const note = index.notesById.get(menu.data.id)
+        if (!note) return null
+        return (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={close}
+            items={noteMenuItems(note, { openFile, renameNode, deleteNode, duplicateFile, index }, {
+              open: true,
+              rename: true,
+              duplicate: true,
+              remove: true,
+            })}
+          />
+        )
+      })()}
     </div>
   )
 }

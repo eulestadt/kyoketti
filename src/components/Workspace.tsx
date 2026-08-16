@@ -27,6 +27,9 @@ import { QuickSwitcher } from './search/QuickSwitcher'
 import { displayNoteName } from '../lib/noteNames'
 import { isBaseFileName } from '../lib/bases'
 import { isCanvasFileName } from '../lib/canvas'
+import { compactItems, ContextMenu, useContextMenu } from './ui/ContextMenu'
+import { copyPath, copyWikilink } from '../lib/clipboard'
+import type { OpenTab } from '../types'
 import './Workspace.css'
 
 const PURE_KEY = 'kyoketti.pureMode'
@@ -46,6 +49,10 @@ export function Workspace() {
     activeFileId,
     openFile,
     closeTab,
+    closeOtherTabs,
+    closeAllTabs,
+    closeTabsToTheRight,
+    index,
     leftPanel,
     setLeftPanel,
     viewMode,
@@ -72,6 +79,7 @@ export function Workspace() {
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement))
   const activeTabRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  const { menu: tabMenu, open: openTabMenu, close: closeTabMenu } = useContextMenu<OpenTab>()
 
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
@@ -244,6 +252,7 @@ export function Workspace() {
                       ref={tab.id === activeFileId ? activeTabRef : undefined}
                       className={`tab ${tab.id === activeFileId ? 'active' : ''}`}
                       onClick={() => void openFile(tab.id)}
+                      onContextMenu={(e) => openTabMenu(e, tab)}
                     >
                       <span>
                         {tab.dirty ? '• ' : ''}
@@ -261,6 +270,36 @@ export function Workspace() {
                     </div>
                   ))}
                 </div>
+                {tabMenu && (
+                  <ContextMenu
+                    x={tabMenu.x}
+                    y={tabMenu.y}
+                    onClose={closeTabMenu}
+                    items={compactItems([
+                      { label: 'Close', onClick: () => closeTab(tabMenu.data.id) },
+                      {
+                        label: 'Close others',
+                        disabled: tabs.length < 2,
+                        onClick: () => closeOtherTabs(tabMenu.data.id),
+                      },
+                      { label: 'Close all', onClick: () => closeAllTabs() },
+                      {
+                        label: 'Close tabs to the right',
+                        disabled: tabs.findIndex((t) => t.id === tabMenu.data.id) >= tabs.length - 1,
+                        onClick: () => closeTabsToTheRight(tabMenu.data.id),
+                      },
+                      { type: 'separator' as const },
+                      {
+                        label: 'Copy path',
+                        onClick: () => void copyPath(tabMenu.data.path || tabMenu.data.name),
+                      },
+                      {
+                        label: 'Copy wikilink',
+                        onClick: () => void copyWikilink(tabMenu.data.name, tabMenu.data.path, index),
+                      },
+                    ])}
+                  />
+                )}
                 <div className="view-modes">
                   {!hideMarkdownModes && (
                     <>

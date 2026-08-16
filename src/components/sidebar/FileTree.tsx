@@ -15,7 +15,13 @@ import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
 import { ensureBaseFileName, isBaseFileName } from '../../lib/bases'
 import { ensureCanvasFileName, isCanvasFileName } from '../../lib/canvas'
 import type { VaultNode } from '../../types'
+import { compactItems, ContextMenu, useContextMenu, type ContextMenuItem } from '../ui/ContextMenu'
+import { noteMenuItems, promptFileRename } from '../ui/noteMenu'
 import './FileTree.css'
+
+type MenuTarget =
+  | { kind: 'file'; node: VaultNode }
+  | { kind: 'folder'; node: VaultNode }
 
 export function FileTree() {
   const {
@@ -29,10 +35,12 @@ export function FileTree() {
     createDirectory,
     renameNode,
     deleteNode,
+    duplicateFile,
     loadingVault,
+    index,
   } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [menuId, setMenuId] = useState<string | null>(null)
+  const { menu, open, close } = useContextMenu<MenuTarget>()
 
   useEffect(() => {
     if (vault?.folderId) {
@@ -78,17 +86,40 @@ export function FileTree() {
   }
 
   async function onRename(node: VaultNode) {
-    const name = window.prompt('Rename', node.isFolder ? node.name : displayNoteName(node.name))
-    if (!name) return
-    const nextName = node.isFolder ? name.trim() : ensureMarkdownFileName(name, node.name)
-    if (!nextName || nextName === node.name) return
+    const nextName = promptFileRename(node.name, node.isFolder)
+    if (!nextName) return
     await renameNode(node.id, nextName)
   }
 
   async function onDelete(node: VaultNode) {
     const label = node.isFolder ? node.name : displayNoteName(node.name)
-    if (!window.confirm(`Move “${label}” to Drive trash?`)) return
+    if (!window.confirm(`Move “${label}” to trash?`)) return
     await deleteNode(node.id)
+  }
+
+  function folderItems(node: VaultNode): ContextMenuItem[] {
+    const isRoot = node.id === vault?.folderId
+    return compactItems([
+      { label: 'New note', onClick: () => void onCreateNote(node.id) },
+      { label: 'New folder', onClick: () => void onCreateFolder(node.id) },
+      { label: 'New base', onClick: () => void onCreateBase(node.id) },
+      { label: 'New canvas', onClick: () => void onCreateCanvas(node.id) },
+      !isRoot && { type: 'separator' as const },
+      !isRoot && { label: 'Rename', onClick: () => void onRename(node) },
+      !isRoot && {
+        label: 'Delete',
+        danger: true,
+        onClick: () => void onDelete(node),
+      },
+    ])
+  }
+
+  function fileItems(node: VaultNode): ContextMenuItem[] {
+    return noteMenuItems(
+      node,
+      { openFile, renameNode, deleteNode, duplicateFile, index },
+      { open: true, rename: true, duplicate: true, remove: true },
+    )
   }
 
   function renderNode(node: VaultNode, depth: number) {
@@ -98,7 +129,11 @@ export function FileTree() {
     if (node.isFolder) {
       return (
         <div key={node.id} className="tree-node">
-          <div className={`tree-row folder ${isActive ? 'active' : ''}`} style={{ paddingLeft: 8 + depth * 12 }}>
+          <div
+            className={`tree-row folder ${isActive ? 'active' : ''}`}
+            style={{ paddingLeft: 8 + depth * 12 }}
+            onContextMenu={(e) => open(e, { kind: 'folder', node })}
+          >
             <button className="tree-main" onClick={() => toggle(node.id)}>
               {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <Folder size={14} />
@@ -117,18 +152,13 @@ export function FileTree() {
               <button title="New folder" onClick={() => void onCreateFolder(node.id)}>
                 <FolderPlus size={13} />
               </button>
-              {node.id !== vault?.folderId && (
-                <button title="More" onClick={() => setMenuId(menuId === node.id ? null : node.id)}>
-                  <MoreHorizontal size={13} />
-                </button>
-              )}
+              <button
+                title="More"
+                onClick={(e) => open(e, { kind: 'folder', node })}
+              >
+                <MoreHorizontal size={13} />
+              </button>
             </div>
-            {menuId === node.id && (
-              <div className="tree-menu">
-                <button onClick={() => { setMenuId(null); void onRename(node) }}>Rename</button>
-                <button onClick={() => { setMenuId(null); void onDelete(node) }}>Delete</button>
-              </div>
-            )}
           </div>
           {isOpen && (node.children ?? []).map((child) => renderNode(child, depth + 1))}
         </div>
@@ -143,27 +173,43 @@ export function FileTree() {
 
     return (
       <div key={node.id} className="tree-node">
-        <div className={`tree-row file ${isActive ? 'active' : ''}`} style={{ paddingLeft: 8 + depth * 12 }}>
+        <div
+          className={`tree-row file ${isActive ? 'active' : ''}`}
+          style={{ paddingLeft: 8 + depth * 12 }}
+          onContextMenu={(e) => open(e, { kind: 'file', node })}
+        >
           <button className="tree-main" onClick={() => void openFile(node.id)}>
             <span className="tree-spacer" />
             <Icon size={14} />
             <span>{displayNoteName(node.name)}</span>
           </button>
           <div className="tree-actions">
-            <button title="More" onClick={() => setMenuId(menuId === node.id ? null : node.id)}>
+            <button title="More" onClick={(e) => open(e, { kind: 'file', node })}>
               <MoreHorizontal size={13} />
             </button>
           </div>
-          {menuId === node.id && (
-            <div className="tree-menu">
-              <button onClick={() => { setMenuId(null); void onRename(node) }}>Rename</button>
-              <button onClick={() => { setMenuId(null); void onDelete(node) }}>Delete</button>
-            </div>
-          )}
         </div>
       </div>
     )
   }
 
-  return <div className="file-tree">{renderNode(tree, 0)}</div>
+  return (
+    <div
+      className="file-tree"
+      onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest('.tree-row')) return
+        open(e, { kind: 'folder', node: tree })
+      }}
+    >
+      {renderNode(tree, 0)}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.data.kind === 'folder' ? folderItems(menu.data.node) : fileItems(menu.data.node)}
+          onClose={close}
+        />
+      )}
+    </div>
+  )
 }
