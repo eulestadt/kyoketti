@@ -30,7 +30,7 @@ export type CommandHost = {
   activeFileId: string | null
   editorContent: string
   viewMode: ViewMode
-  leftPanel: 'files' | 'search' | 'graph'
+  leftPanel: 'files' | 'search' | 'graph' | 'canvas'
   rightPanel: 'backlinks' | 'outgoing' | 'outline' | 'tags' | null
   localGraph: boolean
   theme: 'light' | 'dark'
@@ -56,7 +56,7 @@ export type CommandHost = {
   writeFileContent: (id: string, content: string) => Promise<void>
   setEditorContent: (content: string) => void
   setViewMode: (mode: ViewMode) => void
-  setLeftPanel: (panel: 'files' | 'search' | 'graph') => void
+  setLeftPanel: (panel: 'files' | 'search' | 'graph' | 'canvas') => void
   setRightPanel: (panel: 'backlinks' | 'outgoing' | 'outline' | 'tags' | null) => void
   setSearchQuery: (query: string) => void
   setLocalGraph: (value: boolean) => void
@@ -136,6 +136,10 @@ export function buildAppCommands(host: CommandHost): CommandDef[] {
     } },
     { id: 'bases:new-file', name: 'Bases: Create new base', run: () => { if (parentId) void host.createBase(parentId, 'Untitled') } },
     { id: 'canvas:new-file', name: 'Canvas: Create new canvas', run: () => { if (parentId) void host.createCanvas(parentId, 'Untitled') } },
+    { id: 'canvas:open-view', name: 'Canvas: Show canvases', keywords: 'board visual', run: () => {
+      host.setLeftCollapsed(false)
+      host.setLeftPanel('canvas')
+    } },
     { id: 'workspace:new-tab', name: 'New tab', run: () => { if (parentId) void host.createNote(parentId, 'Untitled') } },
     { id: 'editor:save-file', name: 'Save current file', hotkey: 'Mod+S', run: () => void host.saveActiveFile() },
     { id: 'app:reload', name: 'Reload vault', keywords: 'refresh', run: () => void host.refreshVault() },

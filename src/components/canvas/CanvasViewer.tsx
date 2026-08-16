@@ -4,6 +4,7 @@ import {
   FileText,
   Globe,
   Group,
+  Image,
   Maximize2,
   Minus,
   Plus,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
+import { useVaultMediaSrc } from '../../hooks/useVaultMedia'
 import {
   CANVAS_PRESET_COLORS,
   boundsOfNodes,
@@ -35,6 +37,8 @@ import {
 } from '../../lib/canvas'
 import { renderMarkdownToHtml } from '../../lib/markdown'
 import { resolveNoteRef } from '../../lib/vaultIndex'
+import { findVaultNode, findVaultNodeByPath } from '../../lib/vaultTree'
+import { isCanvasImageRef, isImageFileName, isImageUrl } from '../../lib/media'
 import { compactItems, ContextMenu, type ContextMenuItem } from '../ui/ContextMenu'
 import { copyText, copyWikilink } from '../../lib/clipboard'
 import './CanvasViewer.css'
@@ -59,8 +63,19 @@ type DragState =
   | { kind: 'marquee'; start: Point; current: Point }
   | null
 
+function pickImageFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.onchange = () => resolve(input.files?.[0] ?? null)
+    input.oncancel = () => resolve(null)
+    input.click()
+  })
+}
+
 export function CanvasViewer({ content, onChange, embedded = false, readOnly = false }: Props) {
-  const { index, openFile, openNoteByTitle, createNote, vault } = useApp()
+  const { index, openFile, openNoteByTitle, createNote, createAttachment, vault, tree, activeFileId } = useApp()
   const { theme } = useTheme()
   const parsed = useMemo(() => parseCanvasData(content || defaultCanvasContent()), [content])
   const [data, setData] = useState<CanvasData>(parsed.data)
@@ -236,6 +251,50 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
     [commit, readOnly],
   )
 
+  const resolveImageRef = useCallback(
+    async (incoming?: File | string): Promise<string | null> => {
+      if (readOnly) return null
+      if (typeof incoming === 'string' && incoming.trim()) return incoming.trim()
+      const file = incoming instanceof File ? incoming : await pickImageFile()
+      if (file) {
+        const parentId = findVaultNode(tree, activeFileId ?? '')?.parentId ?? vault?.folderId
+        if (!parentId) return null
+        const created = await createAttachment(parentId, file.name, file)
+        return created.path || created.name
+      }
+      const url = window.prompt('Image URL', 'https://')
+      return url?.trim() || null
+    },
+    [activeFileId, createAttachment, readOnly, tree, vault?.folderId],
+  )
+
+  const addImageNode = useCallback(
+    async (at?: Point, incoming?: File | string) => {
+      const filePath = await resolveImageRef(incoming)
+      if (!filePath) return
+      const p = at ?? { x: 40, y: 40 }
+      const id = newCanvasId()
+      commit((prev) => ({
+        ...prev,
+        nodes: [
+          ...prev.nodes,
+          {
+            id,
+            type: 'file',
+            x: snap(p.x),
+            y: snap(p.y),
+            width: 320,
+            height: 240,
+            file: filePath,
+          },
+        ],
+      }))
+      setSelectedNodeIds(new Set([id]))
+      setContextMenu(null)
+    },
+    [commit, resolveImageRef],
+  )
+
   const addGroup = useCallback(
     (at?: Point) => {
       if (readOnly) return
@@ -347,6 +406,30 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
       window.removeEventListener('keyup', onKeyUp)
     }
   }, [deleteSelection, editingEdgeId, editingNodeId, zoomToFit, zoomToSelection])
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (readOnly || embedded) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const imageItem = [...(e.clipboardData?.items ?? [])].find((item) => item.type.startsWith('image/'))
+      const file = imageItem?.getAsFile()
+      const text = e.clipboardData?.getData('text/plain')?.trim() ?? ''
+      const rect = stageRef.current?.getBoundingClientRect()
+      const at = rect
+        ? screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        : { x: 40, y: 40 }
+      if (file) {
+        e.preventDefault()
+        void addImageNode(at, file)
+      } else if (text && isImageUrl(text)) {
+        e.preventDefault()
+        void addImageNode(at, text)
+      }
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [addImageNode, embedded, readOnly, screenToWorld])
 
   useEffect(() => {
     function onMove(e: PointerEvent) {
@@ -617,6 +700,11 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
       return compactItems([
         !readOnly && { label: 'Add text card', onClick: () => addTextNode(menu.world) },
         !readOnly && { label: 'Add note from vault', onClick: () => void addFileNode(menu.world) },
+        !readOnly && { label: 'Add image', onClick: () => void addImageNode(menu.world) },
+        !readOnly && { label: 'Add image from URL', onClick: () => {
+          const url = window.prompt('Image URL', 'https://')
+          if (url?.trim()) void addImageNode(menu.world, url.trim())
+        } },
         !readOnly && { label: 'Add web page', onClick: () => addLinkNode(menu.world) },
         !readOnly && { label: 'Create group', onClick: () => addGroup(menu.world) },
         { type: 'separator' as const },
@@ -652,8 +740,17 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
         onClick: () => setEditingNodeId(node.id),
       },
       node.type === 'file' && {
-        label: 'Open',
+        label: isCanvasImageRef(node.file) ? 'Open image' : 'Open',
         onClick: async () => {
+          if (isImageUrl(node.file)) {
+            window.open(node.file, '_blank', 'noopener,noreferrer')
+            return
+          }
+          const media = findVaultNodeByPath(tree, node.file)
+          if (media) {
+            await openFile(media.id, { name: media.name, path: media.path })
+            return
+          }
           const note = resolveNoteRef(index, node.file)
           if (note) await openFile(note.id)
           else await openNoteByTitle(node.file.replace(/\.(md|markdown)$/i, ''))
@@ -683,6 +780,20 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
       Boolean(!readOnly && node.type === 'text' && vault?.folderId) && {
         label: 'Convert to file',
         onClick: () => void convertTextToFile(node.id),
+      },
+      !readOnly && node.type === 'group' && {
+        label: node.background ? 'Change background image' : 'Add background image',
+        onClick: () => {
+          void resolveImageRef().then((ref) => {
+            if (!ref) return
+            updateNode(node.id, { background: ref, backgroundStyle: node.backgroundStyle ?? 'cover' } as Partial<CanvasNode>)
+            setContextMenu(null)
+          })
+        },
+      },
+      !readOnly && node.type === 'group' && Boolean(node.background) && {
+        label: 'Remove background image',
+        onClick: () => updateNode(node.id, { background: undefined } as Partial<CanvasNode>),
       },
       !readOnly && { label: 'Duplicate', onClick: () => duplicateNode(node.id) },
       node.type === 'text' && {
@@ -757,6 +868,9 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
             <button type="button" className="canvas-tool" title="Add note from vault" onClick={() => void addFileNode()}>
               <FileText size={14} /> Note
             </button>
+            <button type="button" className="canvas-tool" title="Add image" onClick={() => void addImageNode()}>
+              <Image size={14} /> Image
+            </button>
             <button type="button" className="canvas-tool" title="Add web page" onClick={() => addLinkNode()}>
               <Globe size={14} /> Web
             </button>
@@ -800,6 +914,19 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
         onDoubleClick={onStageDoubleClick}
         onWheel={onStageWheel}
         onContextMenu={onStageContextMenu}
+        onDragOver={(e) => {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          if (readOnly) return
+          const world = screenToWorld(e.clientX, e.clientY)
+          const imageFile = [...e.dataTransfer.files].find((file) => file.type.startsWith('image/'))
+          const uri = (e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')).trim()
+          if (imageFile) void addImageNode(world, imageFile)
+          else if (uri && (isImageUrl(uri) || isImageFileName(uri))) void addImageNode(world, uri)
+        }}
       >
         {!data.nodes.length && <div className="canvas-empty-hint">Double-click to add a card</div>}
         <div
@@ -958,6 +1085,15 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
               onChangeText={(text) => updateNode(node.id, { text } as Partial<CanvasNode>)}
               onChangeLabel={(label) => updateNode(node.id, { label } as Partial<CanvasNode>)}
               onOpenFile={async (path) => {
+                if (isImageUrl(path)) {
+                  window.open(path, '_blank', 'noopener,noreferrer')
+                  return
+                }
+                const media = findVaultNodeByPath(tree, path)
+                if (media) {
+                  await openFile(media.id, { name: media.name, path: media.path })
+                  return
+                }
                 const note = resolveNoteRef(index, path)
                 if (note) await openFile(note.id)
                 else await openNoteByTitle(path.replace(/\.(md|markdown)$/i, ''))
@@ -1060,8 +1196,20 @@ function CanvasCard({
 }) {
   const { index } = useApp()
   const border = resolveCanvasColor(node.color, theme, undefined)
+  const imageRef =
+    node.type === 'file'
+      ? node.file
+      : node.type === 'link'
+        ? node.url
+        : node.type === 'group'
+          ? node.background
+          : undefined
+  const isImageCard =
+    (node.type === 'file' && isCanvasImageRef(node.file)) ||
+    (node.type === 'link' && isCanvasImageRef(node.url))
+  const mediaSrc = useVaultMediaSrc(isImageCard || node.type === 'group' ? imageRef : undefined)
   const note =
-    node.type === 'file' ? resolveNoteRef(index, node.file) : null
+    node.type === 'file' && !isImageCard ? resolveNoteRef(index, node.file) : null
   const previewHtml =
     node.type === 'text' && !editing
       ? renderMarkdownToHtml(node.text, () => null)
@@ -1071,13 +1219,24 @@ function CanvasCard({
 
   return (
     <div
-      className={`canvas-node ${node.type} ${selected ? 'selected' : ''}`}
+      className={`canvas-node ${node.type} ${isImageCard ? 'image' : ''} ${selected ? 'selected' : ''}`}
       style={{
         left: node.x,
         top: node.y,
         width: node.width,
         height: node.height,
         borderColor: border,
+        backgroundImage: node.type === 'group' && mediaSrc ? `url("${mediaSrc}")` : undefined,
+        backgroundSize:
+          node.type === 'group'
+            ? node.backgroundStyle === 'repeat'
+              ? 'auto'
+              : node.backgroundStyle === 'ratio'
+                ? 'contain'
+                : 'cover'
+            : undefined,
+        backgroundRepeat: node.type === 'group' && node.backgroundStyle === 'repeat' ? 'repeat' : 'no-repeat',
+        backgroundPosition: 'center',
       }}
       onPointerDown={(e) => {
         if (e.button !== 0) return
@@ -1099,8 +1258,8 @@ function CanvasCard({
     >
       <div className="canvas-node-header">
         {node.type === 'text' && <StickyNote size={12} />}
-        {node.type === 'file' && <FileText size={12} />}
-        {node.type === 'link' && <Globe size={12} />}
+        {node.type === 'file' && (isImageCard ? <Image size={12} /> : <FileText size={12} />)}
+        {node.type === 'link' && (isImageCard ? <Image size={12} /> : <Globe size={12} />)}
         {node.type === 'group' && <Group size={12} />}
         <strong>
           {node.type === 'group'
@@ -1119,9 +1278,11 @@ function CanvasCard({
               )
               : (node.label || 'Group')
             : node.type === 'file'
-              ? node.file
+              ? (node.file.split('/').pop() ?? node.file)
               : node.type === 'link'
-                ? 'Web'
+                ? isImageCard
+                  ? 'Image'
+                  : 'Web'
                 : 'Text'}
         </strong>
       </div>
@@ -1135,6 +1296,14 @@ function CanvasCard({
           />
         ) : node.type === 'text' ? (
           <div className="md-preview" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        ) : isImageCard ? (
+          <div className="canvas-image-card">
+            {mediaSrc ? (
+              <img src={mediaSrc} alt={node.type === 'file' ? node.file : node.url} draggable={false} />
+            ) : (
+              <span>Missing image</span>
+            )}
+          </div>
         ) : node.type === 'file' ? (
           <div>
             <button

@@ -39,7 +39,7 @@ export function ancestorIds(root: VaultNode | null | undefined, id: string): str
 }
 
 export function uniqueCopyName(name: string, existing: string[]): string {
-  const match = name.match(/^(.*?)(\.(md|markdown|base|canvas))?$/i)
+  const match = name.match(/^(.*?)(\.(md|markdown|base|canvas|png|jpe?g|gif|webp|svg|bmp|ico|avif))?$/i)
   const stem = match?.[1] || name
   const ext = match?.[2] ?? ''
   const taken = new Set(existing.map((n) => n.toLowerCase()))
@@ -50,4 +50,33 @@ export function uniqueCopyName(name: string, existing: string[]): string {
     candidate = `${stem} ${n}${ext}`
   }
   return candidate
+}
+
+export function collectVaultNodes(
+  root: VaultNode | null | undefined,
+  pred: (node: VaultNode) => boolean,
+): VaultNode[] {
+  if (!root) return []
+  const out: VaultNode[] = []
+  function walk(node: VaultNode) {
+    if (pred(node)) out.push(node)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(root)
+  return out
+}
+
+export function findVaultNodeByPath(root: VaultNode | null | undefined, path: string): VaultNode | null {
+  if (!root) return null
+  const want = path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase()
+  function walk(node: VaultNode): VaultNode | null {
+    const full = (node.path || node.name).replace(/\\/g, '/').toLowerCase()
+    if (full === want || node.name.toLowerCase() === want) return node
+    for (const child of node.children ?? []) {
+      const hit = walk(child)
+      if (hit) return hit
+    }
+    return null
+  }
+  return walk(root)
 }

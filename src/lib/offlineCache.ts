@@ -40,7 +40,7 @@ export type MutationOp =
       parentId: string
       name: string
       content: string
-      kind: 'note' | 'base' | 'canvas'
+      kind: 'note' | 'base' | 'canvas' | 'image'
     }
   | { type: 'mkdir'; tempId: string; parentId: string; name: string }
   | { type: 'rename'; fileId: string; name: string }

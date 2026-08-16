@@ -13,9 +13,11 @@ import {
   loadSession,
 } from '../lib/googleAuth'
 import {
+  createBinaryFile,
   createFolder,
   createMarkdownFile,
   createTextFile,
+  downloadBinaryFile,
   downloadTextFile,
   listVaultTree,
   renameFile,
@@ -33,20 +35,24 @@ import {
   startGoogleLogin,
 } from '../lib/serverAuth'
 import {
+  githubCreateBinary,
   githubCreateFolder,
   githubCreateNote,
   githubDelete,
   githubRead,
+  githubReadBlob,
   githubRename,
   githubWrite,
   listGithubVaultTree,
   pathId as githubPathId,
 } from '../lib/githubVault'
 import {
+  demoCreateBinary,
   demoCreateFolder,
   demoCreateNote,
   demoListVault,
   demoRead,
+  demoReadBlob,
   demoRename,
   demoTrash,
   demoWrite,
@@ -59,10 +65,12 @@ import {
   ensureLocalPathId,
   hydrateLocalMapsFromTree,
   isLocalMode,
+  localCreateBinary,
   localCreateFolder,
   localCreateNote,
   localListVault,
   localRead,
+  localReadBlob,
   localRename,
   localTrash,
   localWrite,
@@ -90,6 +98,13 @@ import { defaultBaseContent, ensureBaseFileName, isBaseFileName } from '../lib/b
 import { defaultCanvasContent, ensureCanvasFileName, isCanvasFileName } from '../lib/canvas'
 import { childNames, findVaultNode, uniqueCopyName } from '../lib/vaultTree'
 import { insertVaultChild, remapVaultId, removeVaultNode, renameVaultNode } from '../lib/vaultMutate'
+import {
+  attachmentFileName,
+  blobToDataUrl,
+  dataUrlToBlob,
+  isImageFileName,
+  mimeForImageName,
+} from '../lib/media'
 import {
   browserOffline,
   OfflineError,
@@ -200,6 +215,8 @@ type AppActions = {
   renameNode: (id: string, name: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   writeFileContent: (fileId: string, content: string) => Promise<void>
+  readFileBlob: (fileId: string) => Promise<Blob>
+  createAttachment: (parentId: string, name: string, data: Blob) => Promise<CreatedFile>
   setViewMode: (mode: ViewMode) => void
   setLeftPanel: (panel: LeftPanel) => void
   setRightPanel: (panel: RightPanel) => void
@@ -901,6 +918,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const liveIndex = indexRef.current
         const liveTree = treeRef.current
         let note = liveIndex.notesById.get(fileId)
+        const fileName =
+          hint?.name ?? note?.name ?? treeFindName(liveTree, fileId) ?? ''
+        if (content == null && isImageFileName(fileName)) {
+          content = ''
+        }
         if (content == null) {
           const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
           const github = !demo && !local && session?.provider === 'github'
@@ -1270,35 +1292,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [createVaultTextFile],
   )
 
-  const duplicateFile = useCallback(
-    async (fileId: string) => {
-      const node = findVaultNode(treeRef.current, fileId)
-      if (!node || node.isFolder) return
-      const parentId = node.parentId ?? vaultRef.current?.folderId
-      if (!parentId) return
-      const parent = findVaultNode(treeRef.current, parentId) ?? treeRef.current
-      const copyName = uniqueCopyName(node.name, childNames(parent))
-      let content =
-        contentCache.current.get(fileId) ?? indexRef.current.notesById.get(fileId)?.content
-      if (content == null) {
-        if (demoRef.current) content = demoRead(fileId)
-        else if (localRef.current) content = await localRead(fileId)
-        else {
-          const accessToken = await ensureDriveToken()
-          content =
-            sessionRef.current?.provider === 'github'
-              ? await githubRead(accessToken, vaultRef.current?.folderId ?? '', fileId)
-              : await downloadTextFile(accessToken, fileId)
-        }
-      }
-      const options: CreateFileOptions = { content, open: true }
-      if (isBaseFileName(node.name)) await createBase(parentId, copyName, options)
-      else if (isCanvasFileName(node.name)) await createCanvas(parentId, copyName, options)
-      else await createNote(parentId, copyName, options)
-    },
-    [createBase, createCanvas, createNote, ensureDriveToken],
-  )
-
   const writeFileContent = useCallback(
     async (fileId: string, content: string) => {
       if (!demoRef.current && !localRef.current && !sessionRef.current) return
@@ -1344,6 +1337,134 @@ export function AppProvider({ children }: { children: ReactNode }) {
       schedulePersist()
     },
     [ensureDriveToken, queueOp, schedulePersist],
+  )
+
+  const insertTreeFile = useCallback(
+    (id: string, parentId: string, fileName: string, mimeType: string): string => {
+      const vaultId = vaultRef.current?.folderId ?? parentId
+      const path = pathForNewChild(treeRef.current, vaultId, parentId, fileName)
+      if (treeRef.current) {
+        const node: VaultNode = {
+          id,
+          name: fileName,
+          path,
+          mimeType,
+          isFolder: false,
+          parentId,
+        }
+        const nextTree = insertVaultChild(treeRef.current, parentId, node)
+        treeRef.current = nextTree
+        setTree(nextTree)
+      }
+      if (localRef.current) ensureLocalPathId(path)
+      return path
+    },
+    [],
+  )
+
+  const readFileBlob = useCallback(
+    async (fileId: string): Promise<Blob> => {
+      const node = findVaultNode(treeRef.current, fileId)
+      const name = node?.name ?? ''
+      const mime = node?.mimeType && node.mimeType.startsWith('image/')
+        ? node.mimeType
+        : mimeForImageName(name)
+      if (demoRef.current) return demoReadBlob(fileId)
+      if (localRef.current) return localReadBlob(fileId)
+      const accessToken = await ensureDriveToken()
+      if (sessionRef.current?.provider === 'github') {
+        return githubReadBlob(accessToken, vaultRef.current?.folderId ?? '', fileId)
+      }
+      const blob = await downloadBinaryFile(accessToken, fileId)
+      if (blob.type && blob.type !== 'application/octet-stream') return blob
+      return new Blob([blob], { type: mime || blob.type })
+    },
+    [ensureDriveToken],
+  )
+
+  const createAttachment = useCallback(
+    async (parentId: string, name: string, data: Blob): Promise<CreatedFile> => {
+      const fileName = attachmentFileName(name, data.type)
+      const mimeType = data.type || mimeForImageName(fileName)
+      const github = !demoRef.current && !localRef.current && sessionRef.current?.provider === 'github'
+      const buffer = await data.arrayBuffer()
+      const blob = new Blob([buffer], { type: mimeType })
+      const bytes = new Uint8Array(buffer)
+      let file: DriveFile
+      try {
+        file = demoRef.current
+          ? demoCreateBinary(parentId, fileName, await blobToDataUrl(blob), mimeType)
+          : localRef.current
+            ? await localCreateBinary(parentId, fileName, blob)
+            : github
+              ? await githubCreateBinary(
+                  await ensureDriveToken(),
+                  vaultRef.current!.folderId,
+                  parentId,
+                  fileName,
+                  bytes,
+                )
+              : await createBinaryFile(await ensureDriveToken(), parentId, fileName, blob, mimeType)
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        const vaultId = vaultRef.current?.folderId ?? parentId
+        const pathHint = pathForNewChild(treeRef.current, vaultId, parentId, fileName)
+        const id = github
+          ? githubPathId(vaultId, pathHint)
+          : localRef.current
+            ? ensureLocalPathId(pathHint)
+            : newPendingId()
+        await queueOp({
+          type: 'create',
+          tempId: id,
+          parentId,
+          name: fileName,
+          content: await blobToDataUrl(blob),
+          kind: 'image',
+        })
+        const path = insertTreeFile(id, parentId, fileName, mimeType)
+        return { id, name: fileName, path }
+      }
+      const path = insertTreeFile(file.id, parentId, file.name || fileName, mimeType)
+      if (!offlineRef.current) void refreshVault()
+      return { id: file.id, name: file.name || fileName, path }
+    },
+    [ensureDriveToken, insertTreeFile, queueOp, refreshVault],
+  )
+
+  const duplicateFile = useCallback(
+    async (fileId: string) => {
+      const node = findVaultNode(treeRef.current, fileId)
+      if (!node || node.isFolder) return
+      const parentId = node.parentId ?? vaultRef.current?.folderId
+      if (!parentId) return
+      const parent = findVaultNode(treeRef.current, parentId) ?? treeRef.current
+      const copyName = uniqueCopyName(node.name, childNames(parent))
+      if (isImageFileName(node.name)) {
+        const blob = await readFileBlob(fileId)
+        const created = await createAttachment(parentId, copyName, blob)
+        await openFile(created.id, { name: created.name, path: created.path })
+        return
+      }
+      let content =
+        contentCache.current.get(fileId) ?? indexRef.current.notesById.get(fileId)?.content
+      if (content == null) {
+        if (demoRef.current) content = demoRead(fileId)
+        else if (localRef.current) content = await localRead(fileId)
+        else {
+          const accessToken = await ensureDriveToken()
+          content =
+            sessionRef.current?.provider === 'github'
+              ? await githubRead(accessToken, vaultRef.current?.folderId ?? '', fileId)
+              : await downloadTextFile(accessToken, fileId)
+        }
+      }
+      const options: CreateFileOptions = { content, open: true }
+      if (isBaseFileName(node.name)) await createBase(parentId, copyName, options)
+      else if (isCanvasFileName(node.name)) await createCanvas(parentId, copyName, options)
+      else await createNote(parentId, copyName, options)
+    },
+    [createAttachment, createBase, createCanvas, createNote, ensureDriveToken, openFile, readFileBlob],
   )
 
   const createDirectory = useCallback(
@@ -1540,23 +1661,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
           else if (github) await githubWrite(accessToken, vaultId, op.fileId, op.content)
           else await updateTextFile(accessToken, op.fileId, op.content)
         } else if (op.type === 'create') {
-          const mimeType =
-            op.kind === 'base'
-              ? 'application/x-obsidian-base'
-              : op.kind === 'canvas'
-                ? 'application/x-obsidian-canvas'
-                : 'text/markdown'
-          const file = localRef.current
-            ? await localCreateNote(op.parentId, op.name, op.content)
-            : github
-              ? await githubCreateNote(accessToken, vaultId, op.parentId, op.name, op.content)
-              : op.kind === 'note'
-                ? await createMarkdownFile(accessToken, op.parentId, op.name, op.content)
-                : await createTextFile(accessToken, op.parentId, op.name, op.content, mimeType)
-          if (file.id !== op.tempId) {
-            remapLocalId(op.tempId, file.id)
-            remapFrom = op.tempId
-            remapTo = file.id
+          if (op.kind === 'image') {
+            const blob = await dataUrlToBlob(op.content)
+            const bytes = new Uint8Array(await blob.arrayBuffer())
+            const mimeType = blob.type || mimeForImageName(op.name)
+            const file = localRef.current
+              ? await localCreateBinary(op.parentId, op.name, blob)
+              : github
+                ? await githubCreateBinary(accessToken, vaultId, op.parentId, op.name, bytes)
+                : await createBinaryFile(accessToken, op.parentId, op.name, blob, mimeType)
+            if (file.id !== op.tempId) {
+              remapLocalId(op.tempId, file.id)
+              remapFrom = op.tempId
+              remapTo = file.id
+            }
+          } else {
+            const mimeType =
+              op.kind === 'base'
+                ? 'application/x-obsidian-base'
+                : op.kind === 'canvas'
+                  ? 'application/x-obsidian-canvas'
+                  : 'text/markdown'
+            const file = localRef.current
+              ? await localCreateNote(op.parentId, op.name, op.content)
+              : github
+                ? await githubCreateNote(accessToken, vaultId, op.parentId, op.name, op.content)
+                : op.kind === 'note'
+                  ? await createMarkdownFile(accessToken, op.parentId, op.name, op.content)
+                  : await createTextFile(accessToken, op.parentId, op.name, op.content, mimeType)
+            if (file.id !== op.tempId) {
+              remapLocalId(op.tempId, file.id)
+              remapFrom = op.tempId
+              remapTo = file.id
+            }
           }
         } else if (op.type === 'mkdir') {
           const file = localRef.current
@@ -1710,6 +1847,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       renameNode,
       deleteNode,
       writeFileContent,
+      readFileBlob,
+      createAttachment,
       setViewMode,
       setLeftPanel,
       setRightPanel,
@@ -1778,6 +1917,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       renameNode,
       deleteNode,
       writeFileContent,
+      readFileBlob,
+      createAttachment,
       setViewMode,
       setLeftPanel,
       setRightPanel,

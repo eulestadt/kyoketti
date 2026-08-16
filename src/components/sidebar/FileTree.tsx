@@ -10,11 +10,13 @@ import {
   MoreHorizontal,
   Table2,
   LayoutDashboard,
+  Image,
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
 import { ensureBaseFileName, isBaseFileName } from '../../lib/bases'
 import { ensureCanvasFileName, isCanvasFileName } from '../../lib/canvas'
+import { isImageFileName } from '../../lib/media'
 import type { VaultNode } from '../../types'
 import { compactItems, ContextMenu, useContextMenu, type ContextMenuItem } from '../ui/ContextMenu'
 import { noteMenuItems, promptFileRename } from '../ui/noteMenu'
@@ -197,7 +199,9 @@ export function FileTree() {
       ? LayoutDashboard
       : isBaseFileName(node.name)
         ? Table2
-        : FileText
+        : isImageFileName(node.name)
+          ? Image
+          : FileText
 
     return (
       <div key={node.id} className="tree-node">

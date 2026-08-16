@@ -16,10 +16,12 @@ import {
   Maximize2,
   Minimize2,
   Terminal,
+  LayoutDashboard,
 } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
 import { FileTree } from './sidebar/FileTree'
+import { CanvasList } from './sidebar/CanvasList'
 import { GlobalSearch } from './search/GlobalSearch'
 import { GraphView } from './graph/GraphView'
 import { MarkdownEditor } from './editor/MarkdownEditor'
@@ -29,6 +31,7 @@ import { CommandPalette } from './search/CommandPalette'
 import { displayNoteName } from '../lib/noteNames'
 import { isBaseFileName } from '../lib/bases'
 import { isCanvasFileName } from '../lib/canvas'
+import { isImageFileName } from '../lib/media'
 import { compactItems, ContextMenu, useContextMenu } from './ui/ContextMenu'
 import { copyPath, copyWikilink } from '../lib/clipboard'
 import { buildAppCommands } from '../commands/appCommands'
@@ -383,7 +386,7 @@ export function Workspace() {
   const activeTab = tabs.find((t) => t.id === activeFileId)
   const activeIsBase = activeTab ? isBaseFileName(activeTab.name) : false
   const activeIsCanvas = activeTab ? isCanvasFileName(activeTab.name) : false
-  const hideMarkdownModes = activeIsBase || activeIsCanvas
+  const hideMarkdownModes = activeIsBase || activeIsCanvas || (activeTab ? isImageFileName(activeTab.name) : false)
   const bookmarkItems = picker === 'bookmarks'
     ? loadBookmarks().map((b) => ({ id: b.id, title: b.name, path: b.path }))
     : undefined
@@ -415,8 +418,18 @@ export function Workspace() {
             <Search size={18} />
           </button>
           <button
+            className={leftPanel === 'canvas' ? 'active' : ''}
+            title="Canvas"
+            onClick={() => {
+              setLeftCollapsed(false)
+              setLeftPanel('canvas')
+            }}
+          >
+            <LayoutDashboard size={18} />
+          </button>
+          <button
             className={leftPanel === 'graph' ? 'active' : ''}
-            title="Graph"
+            title="Graph view"
             onClick={() => setLeftPanel('graph')}
           >
             <Network size={18} />
@@ -464,7 +477,13 @@ export function Workspace() {
               </button>
             </div>
           )}
-          {leftPanel === 'files' ? <FileTree /> : <GlobalSearch />}
+          {leftPanel === 'files' ? (
+            <FileTree />
+          ) : leftPanel === 'canvas' ? (
+            <CanvasList />
+          ) : (
+            <GlobalSearch />
+          )}
         </aside>
       )}
 

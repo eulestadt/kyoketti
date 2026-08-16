@@ -136,6 +136,16 @@ export async function downloadTextFile(accessToken: string, fileId: string): Pro
   return res.text()
 }
 
+export async function downloadBinaryFile(accessToken: string, fileId: string): Promise<Blob> {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) {
+    throw new DriveError(await res.text(), res.status)
+  }
+  return res.blob()
+}
+
 export async function updateTextFile(
   accessToken: string,
   fileId: string,
@@ -300,6 +310,37 @@ export async function createTextFile(
     '',
   ].join('\r\n')
 
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,parents,modifiedTime,size',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  )
+  if (!res.ok) throw new DriveError(await res.text(), res.status)
+  return res.json() as Promise<DriveFile>
+}
+
+export async function createBinaryFile(
+  accessToken: string,
+  parentId: string,
+  name: string,
+  data: Blob,
+  mimeType = data.type || 'application/octet-stream',
+): Promise<DriveFile> {
+  const boundary = 'kyoketti_boundary'
+  const meta = JSON.stringify({
+    name,
+    mimeType,
+    parents: [parentId],
+  })
+  const preamble = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+  const closing = `\r\n--${boundary}--\r\n`
+  const body = new Blob([preamble, data, closing])
   const res = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,parents,modifiedTime,size',
     {

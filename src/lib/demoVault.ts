@@ -1,6 +1,6 @@
 import type { DriveFile, VaultNode } from '../types'
 
-const DEMO_KEY = 'kyoketti.demo.files.v4'
+const DEMO_KEY = 'kyoketti.demo.files.v5'
 
 export type DemoFile = {
   id: string
@@ -38,6 +38,7 @@ This is a local demo vault. Link Google Drive from settings when you're ready to
 - Open [[Daily Note]]
 - Follow a tag like #welcome
 - Switch to graph view from the left ribbon
+- Open the Canvas list from the ribbon (next to Files and Search)
 - Press Ctrl/Cmd+P for the command palette
 - Press Ctrl/Cmd+O for the quick switcher
 - Open [[Vault Overview]] for an Obsidian Bases table of your notes
@@ -123,6 +124,18 @@ views:
 `,
   },
   {
+    id: 'demo-sketch',
+    name: 'Sketch.svg',
+    mimeType: 'image/svg+xml',
+    parentId: 'demo-root',
+    modifiedTime: new Date().toISOString(),
+    content: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160">
+  <rect width="280" height="160" rx="16" fill="#5a8f6a"/>
+  <text x="140" y="92" text-anchor="middle" fill="#fff" font-size="28" font-family="Georgia, serif">Kyoketti</text>
+</svg>
+`,
+  },
+  {
     id: 'demo-canvas',
     name: 'Ideas Canvas.canvas',
     mimeType: 'application/x-obsidian-canvas',
@@ -138,7 +151,7 @@ views:
       "width": 320,
       "height": 180,
       "color": "5",
-      "text": "## Ideas Canvas\\n\\nConnect notes visually.\\nDrag from card edges to link cards."
+      "text": "## Ideas Canvas\\n\\nConnect notes visually.\\nDrag from card edges to link cards.\\nDrop or paste images onto the board."
     },
     {
       "id": "note-welcome",
@@ -158,6 +171,15 @@ views:
       "height": 180,
       "file": "Projects.md",
       "color": "4"
+    },
+    {
+      "id": "sketch",
+      "type": "file",
+      "x": -120,
+      "y": 160,
+      "width": 280,
+      "height": 180,
+      "file": "Sketch.svg"
     },
     {
       "id": "group-1",
@@ -258,6 +280,16 @@ export function demoRead(id: string): string {
   return loadFiles().find((f) => f.id === id)?.content ?? ''
 }
 
+export async function demoReadBlob(id: string): Promise<Blob> {
+  const file = loadFiles().find((f) => f.id === id)
+  const content = file?.content ?? ''
+  if (content.startsWith('data:')) {
+    const res = await fetch(content)
+    return res.blob()
+  }
+  return new Blob([content], { type: file?.mimeType || 'application/octet-stream' })
+}
+
 export function demoWrite(id: string, content: string) {
   const files = loadFiles()
   const next = files.map((f) =>
@@ -289,6 +321,26 @@ export function demoCreateNote(parentId: string, name: string, content: string):
   })
   saveFiles(files)
   return { id, name: fileName, mimeType, parents: [parentId] }
+}
+
+export function demoCreateBinary(
+  parentId: string,
+  name: string,
+  dataUrl: string,
+  mimeType: string,
+): DriveFile {
+  const id = `demo-${crypto.randomUUID()}`
+  const files = loadFiles()
+  files.push({
+    id,
+    name,
+    mimeType,
+    parentId,
+    content: dataUrl,
+    modifiedTime: new Date().toISOString(),
+  })
+  saveFiles(files)
+  return { id, name, mimeType, parents: [parentId] }
 }
 
 export function demoCreateFolder(parentId: string, name: string): DriveFile {

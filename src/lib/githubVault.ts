@@ -1,4 +1,5 @@
 import type { DriveFile, VaultNode } from '../types'
+import { blobFromBytes, isImageFileName, mimeForImageName } from './media'
 
 const API = 'https://api.github.com'
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -105,10 +106,28 @@ async function ghFetch<T>(
 }
 
 function toBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text)
+  return toBase64Bytes(new TextEncoder().encode(text))
+}
+
+function toBase64Bytes(bytes: Uint8Array): string {
   let binary = ''
-  for (const b of bytes) binary += String.fromCharCode(b)
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
   return btoa(binary)
+}
+
+function fromBase64Bytes(content: string): Uint8Array {
+  const normalized = content.replace(/\n/g, '')
+  const binary = atob(normalized)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+function encodeGithubContent(content: string | Uint8Array): string {
+  return typeof content === 'string' ? toBase64(content) : toBase64Bytes(content)
 }
 
 function fromBase64(content: string): string {
@@ -249,7 +268,9 @@ export async function listGithubVaultTree(
           ? 'application/x-obsidian-base'
           : /\.canvas$/i.test(name)
             ? 'application/x-obsidian-canvas'
-            : 'application/octet-stream',
+            : isImageFileName(name)
+              ? mimeForImageName(name)
+              : 'application/octet-stream',
       parents: [parentId || repoId],
       modifiedTime: undefined,
       size: entry.size != null ? String(entry.size) : undefined,
@@ -426,11 +447,36 @@ export async function githubRead(accessToken: string, repoId: string, fileId: st
   return res.text()
 }
 
+export async function githubReadBlob(accessToken: string, repoId: string, fileId: string): Promise<Blob> {
+  const { owner, repo } = parseRepoId(repoId)
+  const path = parsePathId(fileId, repoId)
+  if (!path) throw new GithubError('Cannot read repository root', 400)
+  const branch = await getDefaultBranch(accessToken, repoId)
+  const meta = await getContentMeta(accessToken, owner, repo, path, branch)
+  if (!meta) throw new GithubError('File not found', 404)
+  const mime = mimeForImageName(path.split('/').pop() ?? path)
+  if (meta.content && meta.encoding === 'base64') {
+    return blobFromBytes(fromBase64Bytes(meta.content), mime)
+  }
+  const res = await fetch(
+    `${API}/repos/${owner}/${repo}/contents/${contentsPath(path)}?ref=${encodeURIComponent(branch)}`,
+    {
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.raw',
+      },
+    },
+  )
+  if (!res.ok) throw new GithubError(await res.text(), res.status)
+  return res.blob()
+}
+
 async function putGithubFile(
   accessToken: string,
   repoId: string,
   path: string,
-  content: string,
+  content: string | Uint8Array,
   message: string,
   sha?: string,
   branch?: string,
@@ -438,7 +484,7 @@ async function putGithubFile(
   const { owner, repo } = parseRepoId(repoId)
   const body: Record<string, string> = {
     message,
-    content: toBase64(content),
+    content: encodeGithubContent(content),
   }
   if (sha) body.sha = sha
   if (branch) body.branch = branch
@@ -459,7 +505,9 @@ async function putGithubFile(
         ? 'application/x-obsidian-base'
         : /\.canvas$/i.test(name)
           ? 'application/x-obsidian-canvas'
-          : 'application/octet-stream',
+          : isImageFileName(name)
+            ? mimeForImageName(name)
+            : 'application/octet-stream',
     parents: [parentPath ? pathId(repoId, parentPath) : repoId],
     size: result.content?.size != null ? String(result.content.size) : undefined,
   }
@@ -469,7 +517,7 @@ async function commitGithubFile(
   accessToken: string,
   repoId: string,
   path: string,
-  content: string,
+  content: string | Uint8Array,
   message: string,
 ): Promise<DriveFile> {
   const { owner, repo } = parseRepoId(repoId)
@@ -520,6 +568,18 @@ export async function githubCreateNote(
       : `${name}.md`
   const path = parentPath ? `${parentPath}/${fileName}` : fileName
   return commitGithubFile(accessToken, repoId, path, content, `docs: create ${path}`)
+}
+
+export async function githubCreateBinary(
+  accessToken: string,
+  repoId: string,
+  parentId: string,
+  name: string,
+  bytes: Uint8Array,
+): Promise<DriveFile> {
+  const parentPath = parsePathId(parentId, repoId)
+  const path = parentPath ? `${parentPath}/${name}` : name
+  return commitGithubFile(accessToken, repoId, path, bytes, `docs: add ${path}`)
 }
 
 export async function githubCreateFolder(

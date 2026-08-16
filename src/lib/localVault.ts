@@ -1,4 +1,5 @@
 import type { DriveFile, VaultNode } from '../types'
+import { isImageFileName, mimeForImageName } from './media'
 
 const MODE_KEY = 'kyoketti.local'
 const DB_NAME = 'kyoketti-local'
@@ -237,9 +238,14 @@ function isVaultTextName(name: string): boolean {
   return isMarkdownName(name) || /\.base$/i.test(name) || /\.canvas$/i.test(name)
 }
 
+function isVaultListedName(name: string): boolean {
+  return isVaultTextName(name) || isImageFileName(name)
+}
+
 function mimeForVaultFile(name: string): string {
   if (/\.base$/i.test(name)) return 'application/x-obsidian-base'
   if (/\.canvas$/i.test(name)) return 'application/x-obsidian-canvas'
+  if (isImageFileName(name)) return mimeForImageName(name)
   return 'text/markdown'
 }
 
@@ -299,7 +305,7 @@ export async function localListVault(folderName: string): Promise<{ root: VaultN
           parents: [parentId],
           modifiedTime: new Date().toISOString(),
         })
-      } else if (handle.kind === 'file' && isVaultTextName(name)) {
+      } else if (handle.kind === 'file' && isVaultListedName(name)) {
         const relPath = parentPath ? `${parentPath}/${name}` : name
         const id = ensureIdForPath(relPath)
         let modifiedTime = new Date().toISOString()
@@ -348,12 +354,16 @@ export async function localListVault(folderName: string): Promise<{ root: VaultN
 }
 
 export async function localRead(id: string): Promise<string> {
+  const file = await localReadBlob(id)
+  return file.text()
+}
+
+export async function localReadBlob(id: string): Promise<File> {
   const relPath = pathOf(id)
   if (!relPath) throw new Error('Cannot read vault root')
   const { parent, name } = await resolveParent(relPath)
   const fileHandle = await parent.getFileHandle(name)
-  const file = await fileHandle.getFile()
-  return file.text()
+  return fileHandle.getFile()
 }
 
 export async function localWrite(id: string, content: string): Promise<void> {
@@ -380,6 +390,27 @@ export async function localCreateNote(parentId: string, name: string, content: s
   const relPath = parentPath ? `${parentPath}/${fileName}` : fileName
   const id = ensureIdForPath(relPath)
   return { id, name: fileName, mimeType: mimeForVaultFile(fileName), parents: [parentId] }
+}
+
+export async function localCreateBinary(
+  parentId: string,
+  name: string,
+  data: Blob,
+): Promise<DriveFile> {
+  const parentPath = pathOf(parentId)
+  const parent = await resolveDirectory(parentPath)
+  const fileHandle = await parent.getFileHandle(name, { create: true })
+  const writable = await fileHandle.createWritable()
+  await writable.write(data)
+  await writable.close()
+  const relPath = parentPath ? `${parentPath}/${name}` : name
+  const id = ensureIdForPath(relPath)
+  return {
+    id,
+    name,
+    mimeType: data.type || mimeForImageName(name),
+    parents: [parentId],
+  }
 }
 
 export async function localCreateFolder(parentId: string, name: string): Promise<DriveFile> {

@@ -14,6 +14,27 @@
   color: var(--text);
 }
 
+.image-preview {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 1.5rem;
+  background: var(--bg-elevated);
+}
+
+.image-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.image-preview p {
+  color: var(--text-muted);
+}
+
 .editor-pane {
   height: 100%;
   width: 100%;

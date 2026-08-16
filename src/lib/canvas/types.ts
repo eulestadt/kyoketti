@@ -68,7 +68,7 @@ export const DEFAULT_CANVAS_JSON = `{
       "y": 0,
       "width": 360,
       "height": 200,
-      "text": "## Canvas\\n\\nDouble-click to add a card.\\nDrag from a card edge to connect.\\nUse the toolbar to add notes, links, and groups."
+      "text": "## Canvas\\n\\nDouble-click to add a card.\\nDrag from a card edge to connect.\\nUse the toolbar to add notes, images, links, and groups."
     }
   ],
   "edges": []

@@ -1,3 +1,5 @@
+import { isImageFileName } from './media'
+
 /** Strip .md/.markdown/.base/.canvas for display. Files keep their extension on disk. */
 export function displayNoteName(name: string): string {
   return name.replace(/\.(md|markdown|base|canvas)$/i, '')
@@ -23,6 +25,11 @@ export function ensureMarkdownFileName(name: string, previousName?: string): str
   }
   if (previousName && /\.(md|markdown)$/i.test(previousName)) {
     return `${trimmed}.md`
+  }
+  if (previousName && isImageFileName(previousName)) {
+    if (isImageFileName(trimmed)) return trimmed.replace(/[\\/]/g, '-')
+    const ext = previousName.match(/\.[^.]+$/)?.[0] ?? ''
+    return `${trimmed}${ext}`
   }
   // New notes from the UI are markdown by default
   if (!previousName || previousName.toLowerCase().endsWith('.md')) {

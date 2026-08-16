@@ -50,7 +50,7 @@ export type CreateFileOptions = {
 
 export type ViewMode = 'source' | 'wysiwyg' | 'live' | 'reading'
 export type RightPanel = 'backlinks' | 'outgoing' | 'outline' | 'tags' | null
-export type LeftPanel = 'files' | 'search' | 'graph'
+export type LeftPanel = 'files' | 'search' | 'graph' | 'canvas'
 
 export type AuthProvider = 'google' | 'github'
 

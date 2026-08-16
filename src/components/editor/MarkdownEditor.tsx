@@ -8,6 +8,8 @@ import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
 import { isBaseFileName } from '../../lib/bases'
 import { isCanvasFileName } from '../../lib/canvas'
+import { isImageFileName } from '../../lib/media'
+import { useVaultMediaSrc } from '../../hooks/useVaultMedia'
 import { applyCmCommand } from '../../lib/cmCommands'
 import { subscribeEditor } from '../../lib/editorBridge'
 import { BaseViewer } from '../bases/BaseViewer'
@@ -84,6 +86,8 @@ export function MarkdownEditor() {
     ?? ''
   const isBase = isBaseFileName(activeName)
   const isCanvas = isCanvasFileName(activeName)
+  const isImage = isImageFileName(activeName)
+  const imagePath = tabs.find((t) => t.id === activeFileId)?.path ?? activeName
 
   const editorTheme = theme === 'dark' ? oneDark : 'light'
 
@@ -91,7 +95,7 @@ export function MarkdownEditor() {
     return (
       <div className="editor-empty">
         <h2>No file open</h2>
-        <p>Select a note from the file explorer, or press Ctrl/Cmd+O to quick switch. Ctrl/Cmd+P opens the command palette.</p>
+        <p>Select a note from the file explorer, open Canvas from the left ribbon, or press Ctrl/Cmd+O to quick switch. Ctrl/Cmd+P opens the command palette.</p>
       </div>
     )
   }
@@ -104,6 +108,10 @@ export function MarkdownEditor() {
         onChange={setEditorContent}
       />
     )
+  }
+
+  if (isImage) {
+    return <ImagePreview key={activeFileId} path={imagePath} name={activeName} />
   }
 
   if (isBase) {
@@ -169,6 +177,19 @@ export function MarkdownEditor() {
         theme={editorTheme}
         lineNumbers
       />
+    </div>
+  )
+}
+
+function ImagePreview({ path, name }: { path: string; name: string }) {
+  const src = useVaultMediaSrc(path)
+  return (
+    <div className="image-preview">
+      {src ? (
+        <img src={src} alt={name} />
+      ) : (
+        <p>Could not load this image. It may be missing from the vault or unavailable offline.</p>
+      )}
     </div>
   )
 }
