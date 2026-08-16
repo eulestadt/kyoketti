@@ -91,12 +91,17 @@ import {
 } from '../lib/vaultIndex'
 import {
   ensureMarkdownFileName,
+  fileNameFromHeading,
+  firstMarkdownH1,
+  isMarkdownNoteName,
+  isUntitledNoteName,
   noteTitleFromFileName,
+  replaceFirstMarkdownH1,
   seedNoteContent,
 } from '../lib/noteNames'
 import { defaultBaseContent, ensureBaseFileName, isBaseFileName } from '../lib/bases'
 import { defaultCanvasContent, ensureCanvasFileName, isCanvasFileName } from '../lib/canvas'
-import { childNames, findVaultNode, uniqueCopyName } from '../lib/vaultTree'
+import { childNames, findVaultNode, uniqueAvailableName, uniqueCopyName } from '../lib/vaultTree'
 import { insertVaultChild, remapVaultId, removeVaultNode, renameVaultNode } from '../lib/vaultMutate'
 import {
   attachmentFileName,
@@ -132,6 +137,7 @@ import {
   seedContentCache,
   sessionFromIdentity,
 } from '../lib/offlineApply'
+import { parseDailyNoteName } from '../lib/dailyNotes'
 import type {
   AuthProvider,
   AuthSession,
@@ -207,6 +213,7 @@ type AppActions = {
   undoCloseTab: () => void
   setEditorContent: (content: string) => void
   saveActiveFile: () => Promise<void>
+  syncFilenameFromHeading: (fileId?: string, options?: { force?: boolean }) => Promise<void>
   createNote: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
   createBase: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
   createCanvas: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
@@ -294,6 +301,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const contentCache = useRef(new Map<string, string>())
   const saveTimer = useRef<number | null>(null)
   const persistTimer = useRef<number | null>(null)
+  const headingSyncTimer = useRef<number | null>(null)
+  const headingSyncInFlight = useRef(false)
+  const headingFollowStem = useRef(new Map<string, string>())
+  const renameNodeRef = useRef<(id: string, name: string) => Promise<void>>(async () => {})
   const editorContentRef = useRef(editorContent)
   const activeFileIdRef = useRef(activeFileId)
   const demoRef = useRef(demo)
@@ -1147,6 +1158,60 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return note
   }, [])
 
+  const syncFilenameFromHeading = useCallback(
+    async (fileId?: string, options?: { force?: boolean }) => {
+      if (headingSyncInFlight.current) return
+      const id = fileId ?? activeFileIdRef.current
+      if (!id) return
+      const content = id === activeFileIdRef.current ? editorContentRef.current : contentCache.current.get(id)
+      if (content == null) return
+      const node = findVaultNode(treeRef.current, id)
+      const name = node?.name ?? indexRef.current.notesById.get(id)?.name
+      if (!name || !isMarkdownNoteName(name) || parseDailyNoteName(name)) return
+      const heading = firstMarkdownH1(content)
+      if (!heading) return
+      const desired = fileNameFromHeading(heading, name)
+      if (!desired) return
+      const stem = noteTitleFromFileName(name)
+      const wantStem = noteTitleFromFileName(desired)
+      if (stem.toLowerCase() === wantStem.toLowerCase()) {
+        if (options?.force || isUntitledNoteName(name) || headingFollowStem.current.has(id)) {
+          headingFollowStem.current.set(id, stem)
+        }
+        return
+      }
+      const followed = headingFollowStem.current.get(id)
+      const shouldFollow =
+        options?.force ||
+        isUntitledNoteName(name) ||
+        (followed != null && followed.toLowerCase() === stem.toLowerCase())
+      if (!shouldFollow) return
+      const parentId = node?.parentId ?? vaultRef.current?.folderId
+      const parent = parentId ? findVaultNode(treeRef.current, parentId) : treeRef.current
+      const unique = uniqueAvailableName(
+        desired,
+        childNames(parent).filter((sibling) => sibling.toLowerCase() !== name.toLowerCase()),
+      )
+      if (unique.toLowerCase() === name.toLowerCase()) {
+        headingFollowStem.current.set(id, stem)
+        return
+      }
+      headingSyncInFlight.current = true
+      headingFollowStem.current.set(id, noteTitleFromFileName(unique))
+      try {
+        await renameNodeRef.current(id, unique)
+        const liveId = activeFileIdRef.current
+        if (liveId && liveId !== id) {
+          headingFollowStem.current.delete(id)
+          headingFollowStem.current.set(liveId, noteTitleFromFileName(unique))
+        }
+      } finally {
+        headingSyncInFlight.current = false
+      }
+    },
+    [],
+  )
+
   const saveActiveFile = useCallback(async () => {
     const fileId = activeFileIdRef.current
     const content = editorContentRef.current
@@ -1191,12 +1256,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTabs((prev) =>
         prev.map((t) => (t.id === activeFileIdRef.current ? { ...t, dirty: true } : t)),
       )
+      const fileId = activeFileIdRef.current
       if (saveTimer.current) window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(() => {
         void saveActiveFile()
       }, 900)
+      if (headingSyncTimer.current) window.clearTimeout(headingSyncTimer.current)
+      headingSyncTimer.current = window.setTimeout(() => {
+        if (fileId) void syncFilenameFromHeading(fileId)
+      }, 2500)
     },
-    [saveActiveFile],
+    [saveActiveFile, syncFilenameFromHeading],
   )
 
   const createVaultTextFile = useCallback(
@@ -1534,6 +1604,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name,
       }
 
+      let selfContent = existing?.content ?? ''
+      if (
+        existing &&
+        oldRef &&
+        !headingSyncInFlight.current &&
+        isMarkdownNoteName(oldRef.name) &&
+        isMarkdownNoteName(name)
+      ) {
+        const heading = firstMarkdownH1(existing.content)
+        if (heading && heading.toLowerCase() === oldRef.title.toLowerCase()) {
+          selfContent = replaceFirstMarkdownH1(existing.content, newRef.title)
+        }
+      }
+      if (oldRef && selfContent) {
+        selfContent = rewriteLinksForRename(selfContent, oldRef, newRef)
+      }
+
       try {
         if (demoRef.current) demoRename(id, name)
         else if (localRef.current) await localRename(id, name)
@@ -1589,20 +1676,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
           name,
           title: newRef.title,
           path: nextPath,
-          content:
-            oldRef && current.content
-              ? rewriteLinksForRename(current.content, oldRef, newRef)
-              : current.content,
+          content: selfContent || current.content,
         })
       })
+      if (existing && selfContent && selfContent !== existing.content) {
+        contentCache.current.set(liveId, selfContent)
+        try {
+          await writeFileContent(liveId, selfContent)
+        } catch {
+          /* heading rewrite is best-effort */
+        }
+      }
       if ((activeFileIdRef.current === id || activeFileIdRef.current === liveId) && oldRef) {
-        setEditorContentState((prev) => rewriteLinksForRename(prev, oldRef, newRef))
+        setEditorContentState(selfContent || editorContentRef.current)
+      }
+      if (activeFileIdRef.current === id && liveId !== id) {
+        setActiveFileId(liveId)
       }
       schedulePersist()
       if (!offlineRef.current) await refreshVault()
     },
     [refreshVault, ensureDriveToken, writeFileContent, queueOp, remapLocalId, schedulePersist],
   )
+  renameNodeRef.current = renameNode
+
+  useEffect(() => {
+    if (!activeFileId) return
+    const name =
+      findVaultNode(tree, activeFileId)?.name ?? index.notesById.get(activeFileId)?.name
+    if (name && isUntitledNoteName(name)) {
+      void syncFilenameFromHeading(activeFileId)
+    }
+  }, [activeFileId, index, syncFilenameFromHeading, tree])
 
   const deleteNode = useCallback(
     async (id: string) => {
@@ -1839,6 +1944,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       undoCloseTab,
       setEditorContent,
       saveActiveFile,
+      syncFilenameFromHeading,
       createNote,
       createBase,
       createCanvas,
@@ -1909,6 +2015,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       undoCloseTab,
       setEditorContent,
       saveActiveFile,
+      syncFilenameFromHeading,
       createNote,
       createBase,
       createCanvas,

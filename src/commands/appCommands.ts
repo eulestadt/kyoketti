@@ -53,6 +53,7 @@ export type CommandHost = {
   deleteNode: (id: string) => Promise<void>
   duplicateFile: (id: string) => Promise<void>
   saveActiveFile: () => Promise<void>
+  syncFilenameFromHeading: (fileId?: string, options?: { force?: boolean }) => Promise<void>
   writeFileContent: (id: string, content: string) => Promise<void>
   setEditorContent: (content: string) => void
   setViewMode: (mode: ViewMode) => void
@@ -177,6 +178,9 @@ export function buildAppCommands(host: CommandHost): CommandDef[] {
       if (!tab) return
       const next = promptFileRename(tab.name)
       if (next) void host.renameNode(tab.id, next)
+    } },
+    { id: 'file:sync-filename-from-heading', name: 'File: Sync filename from heading', keywords: 'rename title h1', run: () => {
+      void host.syncFilenameFromHeading(host.activeFileId ?? undefined, { force: true })
     } },
     { id: 'app:delete-file', name: 'Delete current file', run: () => {
       if (!tab) return

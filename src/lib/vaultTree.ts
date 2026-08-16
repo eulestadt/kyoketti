@@ -38,6 +38,21 @@ export function ancestorIds(root: VaultNode | null | undefined, id: string): str
   return walk(root, []) ?? []
 }
 
+export function uniqueAvailableName(name: string, existing: string[]): string {
+  const taken = new Set(existing.map((n) => n.toLowerCase()))
+  if (!taken.has(name.toLowerCase())) return name
+  const match = name.match(/^(.*?)(\.(md|markdown|base|canvas|png|jpe?g|gif|webp|svg|bmp|ico|avif))?$/i)
+  const stem = match?.[1] || name
+  const ext = match?.[2] ?? ''
+  let n = 2
+  let candidate = `${stem} ${n}${ext}`
+  while (taken.has(candidate.toLowerCase())) {
+    n += 1
+    candidate = `${stem} ${n}${ext}`
+  }
+  return candidate
+}
+
 export function uniqueCopyName(name: string, existing: string[]): string {
   const match = name.match(/^(.*?)(\.(md|markdown|base|canvas|png|jpe?g|gif|webp|svg|bmp|ico|avif))?$/i)
   const stem = match?.[1] || name
