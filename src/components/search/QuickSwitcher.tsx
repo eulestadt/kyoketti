@@ -3,22 +3,47 @@ import { useApp } from '../../hooks/useApp'
 import { fuzzyMatch } from '../../lib/vaultIndex'
 import './QuickSwitcher.css'
 
+export type SwitcherItem = {
+  id: string
+  title: string
+  path: string
+}
+
 type Props = {
   open: boolean
   onClose: () => void
+  placeholder?: string
+  items?: SwitcherItem[]
+  emptyText?: string
+  onChoose?: (id: string) => void | Promise<void>
 }
 
-export function QuickSwitcher({ open, onClose }: Props) {
+export function QuickSwitcher({
+  open,
+  onClose,
+  placeholder = 'Quick switcher — jump to a note',
+  items,
+  emptyText = 'No matching notes',
+  onChoose,
+}: Props) {
   const { index, openFile } = useApp()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
 
-  const notes = useMemo(() => [...index.notesById.values()], [index.notesById])
+  const catalog = useMemo<SwitcherItem[]>(() => {
+    if (items) return items
+    return [...index.notesById.values()].map((n) => ({
+      id: n.id,
+      title: n.title,
+      path: n.path,
+    }))
+  }, [items, index.notesById])
+
   const filtered = useMemo(() => {
-    return notes
+    return catalog
       .filter((n) => fuzzyMatch(query, `${n.title} ${n.path}`))
       .slice(0, 50)
-  }, [notes, query])
+  }, [catalog, query])
 
   useEffect(() => {
     if (open) {
@@ -34,7 +59,8 @@ export function QuickSwitcher({ open, onClose }: Props) {
   if (!open) return null
 
   async function choose(id: string) {
-    await openFile(id)
+    if (onChoose) await onChoose(id)
+    else await openFile(id)
     onClose()
   }
 
@@ -62,7 +88,7 @@ export function QuickSwitcher({ open, onClose }: Props) {
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Quick switcher — jump to a note"
+          placeholder={placeholder}
         />
         <ul>
           {filtered.map((note, i) => (
@@ -77,7 +103,7 @@ export function QuickSwitcher({ open, onClose }: Props) {
               </button>
             </li>
           ))}
-          {filtered.length === 0 && <li className="empty">No matching notes</li>}
+          {filtered.length === 0 && <li className="empty">{emptyText}</li>}
         </ul>
       </div>
     </div>

@@ -130,6 +130,10 @@ type AppState = {
   saveStatus: 'saved' | 'saving' | 'unsaved' | 'error'
   error: string | null
   statusMessage: string
+  searchQuery: string
+  localGraph: boolean
+  revealRequest: { id: string; n: number } | null
+  treeExpandRequest: { mode: 'expand' | 'collapse'; n: number } | null
 }
 
 type AppActions = {
@@ -141,11 +145,14 @@ type AppActions = {
   setVault: (vault: VaultConfig) => Promise<void>
   clearVault: () => void
   refreshVault: () => Promise<void>
-  openFile: (fileId: string, hint?: { name?: string; path?: string }) => Promise<void>
+  openFile: (fileId: string, hint?: { name?: string; path?: string; fromHistory?: boolean }) => Promise<void>
   closeTab: (fileId: string) => void
   closeOtherTabs: (fileId: string) => void
   closeAllTabs: () => void
   closeTabsToTheRight: (fileId: string) => void
+  goBack: () => void
+  goForward: () => void
+  undoCloseTab: () => void
   setEditorContent: (content: string) => void
   saveActiveFile: () => Promise<void>
   createNote: (parentId: string, name: string, options?: CreateFileOptions) => Promise<CreatedFile>
@@ -159,6 +166,11 @@ type AppActions = {
   setViewMode: (mode: ViewMode) => void
   setLeftPanel: (panel: LeftPanel) => void
   setRightPanel: (panel: RightPanel) => void
+  setSearchQuery: (query: string) => void
+  setLocalGraph: (value: boolean) => void
+  revealInNavigation: (fileId: string) => void
+  expandAllFolders: () => void
+  collapseAllFolders: () => void
   openNoteByTitle: (title: string, fromPath?: string) => Promise<boolean>
   setError: (error: string | null) => void
   authProvider: AuthProvider | null
@@ -214,6 +226,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [saveStatus, setSaveStatus] = useState<AppState['saveStatus']>('saved')
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState('Ready')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [localGraph, setLocalGraph] = useState(false)
+  const [revealRequest, setRevealRequest] = useState<{ id: string; n: number } | null>(null)
+  const [treeExpandRequest, setTreeExpandRequest] = useState<{ mode: 'expand' | 'collapse'; n: number } | null>(null)
   const contentCache = useRef(new Map<string, string>())
   const saveTimer = useRef<number | null>(null)
   const editorContentRef = useRef(editorContent)
@@ -224,6 +240,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const indexRef = useRef(index)
   const treeRef = useRef(tree)
   const vaultRef = useRef(vault)
+  const navRef = useRef<{ stack: string[]; index: number }>({ stack: [], index: -1 })
+  const closedTabsRef = useRef<OpenTab[]>([])
+  const tabsRef = useRef<OpenTab[]>([])
 
   useEffect(() => {
     editorContentRef.current = editorContent
@@ -249,6 +268,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     vaultRef.current = vault
   }, [vault])
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeState(mode)
@@ -611,7 +633,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [session, vault, demo, local, refreshVault, bootstrapping])
 
   const openFile = useCallback(
-    async (fileId: string, hint?: { name?: string; path?: string }) => {
+    async (fileId: string, hint?: { name?: string; path?: string; fromHistory?: boolean }) => {
       if (!demo && !local && !session) return
       setError(null)
       try {
@@ -672,14 +694,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return [...prev, { id: fileId, path: note!.path, name: note!.name, dirty: false }]
         })
         setStatusMessage(note.path)
+        if (!hint?.fromHistory) {
+          const nav = navRef.current
+          const next = nav.stack.slice(0, nav.index + 1)
+          if (next[next.length - 1] !== fileId) next.push(fileId)
+          navRef.current = { stack: next.slice(-80), index: next.length - 1 }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to open file')
       }
     },
     [session, demo, local, vault, ensureDriveToken],
   )
+
+  const goBack = useCallback(() => {
+    const nav = navRef.current
+    if (nav.index <= 0) return
+    nav.index -= 1
+    const id = nav.stack[nav.index]
+    if (id) void openFile(id, { fromHistory: true })
+  }, [openFile])
+
+  const goForward = useCallback(() => {
+    const nav = navRef.current
+    if (nav.index >= nav.stack.length - 1) return
+    nav.index += 1
+    const id = nav.stack[nav.index]
+    if (id) void openFile(id, { fromHistory: true })
+  }, [openFile])
+
   const closeTab = useCallback(
     (fileId: string) => {
+      const tab = tabsRef.current.find((t) => t.id === fileId)
+      if (tab) closedTabsRef.current = [...closedTabsRef.current, { ...tab, dirty: false }].slice(-40)
       setTabs((prev) => {
         const next = prev.filter((t) => t.id !== fileId)
         if (activeFileIdRef.current === fileId) {
@@ -696,9 +743,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [openFile],
   )
 
+  const undoCloseTab = useCallback(() => {
+    const tab = closedTabsRef.current.pop()
+    if (!tab) return
+    void openFile(tab.id, { name: tab.name, path: tab.path })
+  }, [openFile])
+
   const closeOtherTabs = useCallback(
     (fileId: string) => {
       setTabs((prev) => {
+        const dropped = prev.filter((t) => t.id !== fileId)
+        if (dropped.length) {
+          closedTabsRef.current = [...closedTabsRef.current, ...dropped.map((t) => ({ ...t, dirty: false }))].slice(-40)
+        }
         const keep = prev.filter((t) => t.id === fileId)
         if (!keep.length) return prev
         if (activeFileIdRef.current !== fileId) void openFile(fileId)
@@ -709,6 +766,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const closeAllTabs = useCallback(() => {
+    closedTabsRef.current = [...closedTabsRef.current, ...tabsRef.current.map((t) => ({ ...t, dirty: false }))].slice(-40)
     setTabs([])
     setActiveFileId(null)
     setEditorContentState('')
@@ -719,6 +777,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTabs((prev) => {
         const idx = prev.findIndex((t) => t.id === fileId)
         if (idx < 0) return prev
+        const dropped = prev.slice(idx + 1)
+        if (dropped.length) {
+          closedTabsRef.current = [...closedTabsRef.current, ...dropped.map((t) => ({ ...t, dirty: false }))].slice(-40)
+        }
         const next = prev.slice(0, idx + 1)
         if (activeFileIdRef.current && !next.some((t) => t.id === activeFileIdRef.current)) {
           void openFile(fileId)
@@ -728,6 +790,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [openFile],
   )
+
+  const revealInNavigation = useCallback((fileId: string) => {
+    setLeftPanel('files')
+    setRevealRequest((prev) => ({ id: fileId, n: (prev?.n ?? 0) + 1 }))
+  }, [])
+
+  const expandAllFolders = useCallback(() => {
+    setTreeExpandRequest((prev) => ({ mode: 'expand', n: (prev?.n ?? 0) + 1 }))
+  }, [])
+
+  const collapseAllFolders = useCallback(() => {
+    setTreeExpandRequest((prev) => ({ mode: 'collapse', n: (prev?.n ?? 0) + 1 }))
+  }, [])
 
   const saveActiveFile = useCallback(async () => {
     const fileId = activeFileIdRef.current
@@ -1110,6 +1185,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveStatus,
       error,
       statusMessage,
+      searchQuery,
+      localGraph,
+      revealRequest,
+      treeExpandRequest,
       connect,
       connectGithub,
       connectLocal,
@@ -1123,6 +1202,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       closeOtherTabs,
       closeAllTabs,
       closeTabsToTheRight,
+      goBack,
+      goForward,
+      undoCloseTab,
       setEditorContent,
       saveActiveFile,
       createNote,
@@ -1136,6 +1218,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setViewMode,
       setLeftPanel,
       setRightPanel,
+      setSearchQuery,
+      setLocalGraph,
+      revealInNavigation,
+      expandAllFolders,
+      collapseAllFolders,
       openNoteByTitle,
       setError,
       authProvider: demo || local ? null : session?.provider ?? null,
@@ -1159,6 +1246,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       saveStatus,
       error,
       statusMessage,
+      searchQuery,
+      localGraph,
+      revealRequest,
+      treeExpandRequest,
       connect,
       connectGithub,
       connectLocal,
@@ -1172,6 +1263,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       closeOtherTabs,
       closeAllTabs,
       closeTabsToTheRight,
+      goBack,
+      goForward,
+      undoCloseTab,
       setEditorContent,
       saveActiveFile,
       createNote,
@@ -1182,6 +1276,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       renameNode,
       deleteNode,
       writeFileContent,
+      setViewMode,
+      setLeftPanel,
+      setRightPanel,
+      setSearchQuery,
+      setLocalGraph,
+      revealInNavigation,
+      expandAllFolders,
+      collapseAllFolders,
       openNoteByTitle,
     ],
   )

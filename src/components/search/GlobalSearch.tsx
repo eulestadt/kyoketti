@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { fuzzyMatch } from '../../lib/vaultIndex'
 import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
@@ -7,9 +7,18 @@ import type { NoteMeta } from '../../types'
 import './GlobalSearch.css'
 
 export function GlobalSearch() {
-  const { index, openFile, renameNode, deleteNode, duplicateFile } = useApp()
-  const [query, setQuery] = useState('')
+  const { index, openFile, renameNode, deleteNode, duplicateFile, searchQuery, setSearchQuery } = useApp()
+  const [query, setQuery] = useState(searchQuery)
+  const inputRef = useRef<HTMLInputElement>(null)
   const { menu, open, close } = useContextMenu<NoteMeta>()
+
+  useEffect(() => {
+    setQuery(searchQuery)
+  }, [searchQuery])
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
 
   const results = useMemo(() => {
     const q = query.trim()
@@ -31,8 +40,13 @@ export function GlobalSearch() {
   return (
     <div className="global-search">
       <input
+        ref={inputRef}
+        autoFocus
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value)
+          setSearchQuery(e.target.value)
+        }}
         placeholder="Search vault…"
         aria-label="Search vault"
       />

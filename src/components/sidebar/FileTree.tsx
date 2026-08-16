@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ancestorIds, collectFolderIds } from '../../lib/vaultTree'
 import {
   FilePlus,
   FolderPlus,
@@ -38,6 +39,8 @@ export function FileTree() {
     duplicateFile,
     loadingVault,
     index,
+    revealRequest,
+    treeExpandRequest,
   } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const { menu, open, close } = useContextMenu<MenuTarget>()
@@ -47,6 +50,30 @@ export function FileTree() {
       setExpanded(new Set([vault.folderId]))
     }
   }, [vault?.folderId])
+
+  useEffect(() => {
+    if (!revealRequest || !tree) return
+    const ancestors = ancestorIds(tree, revealRequest.id)
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      for (const id of ancestors) next.add(id)
+      return next
+    })
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[data-file-id="${CSS.escape(revealRequest.id)}"]`)
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }, 40)
+    return () => window.clearTimeout(timer)
+  }, [revealRequest, tree])
+
+  useEffect(() => {
+    if (!treeExpandRequest || !tree) return
+    if (treeExpandRequest.mode === 'expand') {
+      setExpanded(new Set(collectFolderIds(tree)))
+      return
+    }
+    setExpanded(new Set(vault?.folderId ? [vault.folderId] : []))
+  }, [treeExpandRequest, tree, vault?.folderId])
 
   if (!tree) {
     return <div className="file-tree empty">{loadingVault ? 'Loading files…' : 'No vault loaded'}</div>
@@ -131,6 +158,7 @@ export function FileTree() {
         <div key={node.id} className="tree-node">
           <div
             className={`tree-row folder ${isActive ? 'active' : ''}`}
+            data-file-id={node.id}
             style={{ paddingLeft: 8 + depth * 12 }}
             onContextMenu={(e) => open(e, { kind: 'folder', node })}
           >
@@ -175,6 +203,7 @@ export function FileTree() {
       <div key={node.id} className="tree-node">
         <div
           className={`tree-row file ${isActive ? 'active' : ''}`}
+          data-file-id={node.id}
           style={{ paddingLeft: 8 + depth * 12 }}
           onContextMenu={(e) => open(e, { kind: 'file', node })}
         >

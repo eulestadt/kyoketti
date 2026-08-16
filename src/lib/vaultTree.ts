@@ -14,6 +14,30 @@ export function childNames(folder: VaultNode | null | undefined): string[] {
   return (folder?.children ?? []).map((c) => c.name)
 }
 
+export function collectFolderIds(root: VaultNode | null | undefined): string[] {
+  if (!root) return []
+  const ids: string[] = []
+  function walk(node: VaultNode) {
+    if (node.isFolder) ids.push(node.id)
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(root)
+  return ids
+}
+
+export function ancestorIds(root: VaultNode | null | undefined, id: string): string[] {
+  if (!root) return []
+  function walk(node: VaultNode, trail: string[]): string[] | null {
+    if (node.id === id) return trail
+    for (const child of node.children ?? []) {
+      const hit = walk(child, [...trail, node.id])
+      if (hit) return hit
+    }
+    return null
+  }
+  return walk(root, []) ?? []
+}
+
 export function uniqueCopyName(name: string, existing: string[]): string {
   const match = name.match(/^(.*?)(\.(md|markdown|base|canvas))?$/i)
   const stem = match?.[1] || name

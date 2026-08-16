@@ -15,6 +15,7 @@ import {
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
 import { resolveNoteRef } from '../../lib/vaultIndex'
+import { subscribeEditor, type EditorCommand, type EditorFormat } from '../../lib/editorBridge'
 import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
 import { previewMenuItems, type PreviewMenuTarget } from '../ui/previewMenu'
 import {
@@ -92,6 +93,13 @@ function wrapSelection(tagName: 'strong' | 'em' | 'del' | 'code') {
 function isInListItem(node: Node | null): HTMLElement | null {
   const el = node instanceof Element ? node : node?.parentElement
   return el?.closest('li') ?? null
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 function insertPlainText(text: string) {
@@ -250,6 +258,7 @@ export function WysiwygEditor() {
   const lastFileId = useRef<string | null>(null)
   const lastSerialized = useRef(editorContent)
   const applyingExternal = useRef(false)
+  const applyCmdRef = useRef<(cmd: EditorCommand) => boolean>(() => false)
   const [toolbarVisible, setToolbarVisible] = useState(loadToolbarVisible)
   const [tableMenu, setTableMenu] = useState<{
     x: number
@@ -310,6 +319,10 @@ export function WysiwygEditor() {
     lastSerialized.current = editorContent
     applyingExternal.current = false
   }, [activeFileId, editorContent, index])
+
+  useEffect(() => {
+    return subscribeEditor((cmd) => applyCmdRef.current(cmd))
+  }, [])
 
   function syncFromDom() {
     const el = surfaceRef.current
@@ -399,22 +412,40 @@ export function WysiwygEditor() {
     }
   }
 
-  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote' | 'table') {
-    surfaceRef.current?.focus()
+  function applyEditorFormat(kind: EditorFormat) {
+    const surface = surfaceRef.current
+    if (!surface) return
+    surface.focus()
     if (kind === 'table') {
       insertTable()
       return
     }
-    if (kind === 'h1') runFormat('formatBlock', 'h1')
-    else if (kind === 'h2') runFormat('formatBlock', 'h2')
-    else if (kind === 'bold') wrapSelection('strong')
+    if (kind === 'bold') wrapSelection('strong')
     else if (kind === 'italic') wrapSelection('em')
     else if (kind === 'strike') wrapSelection('del')
     else if (kind === 'code') wrapSelection('code')
+    else if (kind === 'highlight') {
+      const text = window.getSelection()?.toString() ?? ''
+      document.execCommand('insertHTML', false, `<mark>${escapeHtml(text) || '\u200b'}</mark>`)
+    } else if (kind === 'comment') {
+      const text = window.getSelection()?.toString() ?? ''
+      insertPlainText(`%%${text}%%`)
+    } else if (kind === 'h1') runFormat('formatBlock', 'h1')
+    else if (kind === 'h2') runFormat('formatBlock', 'h2')
+    else if (kind === 'h3') runFormat('formatBlock', 'h3')
+    else if (kind === 'h4') runFormat('formatBlock', 'h4')
+    else if (kind === 'h5') runFormat('formatBlock', 'h5')
+    else if (kind === 'h6') runFormat('formatBlock', 'h6')
+    else if (kind === 'heading-remove') runFormat('formatBlock', 'p')
     else if (kind === 'ul') runFormat('insertUnorderedList')
     else if (kind === 'ol') runFormat('insertOrderedList')
     else if (kind === 'quote') runFormat('formatBlock', 'blockquote')
+    else if (kind === 'checkbox') insertPlainText('- [ ] ')
     syncFromDom()
+  }
+
+  function handleFormat(kind: 'h1' | 'h2' | 'bold' | 'italic' | 'strike' | 'code' | 'ul' | 'ol' | 'quote' | 'table') {
+    applyEditorFormat(kind)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -541,11 +572,6 @@ export function WysiwygEditor() {
       handleFormat('strike')
       return
     }
-    if (lower === 'e' && !e.shiftKey && !e.altKey) {
-      e.preventDefault()
-      handleFormat('code')
-      return
-    }
     if (lower === ']') {
       e.preventDefault()
       indentSelection()
@@ -583,6 +609,30 @@ export function WysiwygEditor() {
       handleFormat('quote')
       return
     }
+  }
+
+  applyCmdRef.current = (cmd: EditorCommand) => {
+    const surface = surfaceRef.current
+    if (!surface || !document.contains(surface)) return false
+    surface.focus()
+    if (cmd.type === 'focus') return true
+    if (cmd.type === 'open-search') return false
+    if (cmd.type === 'insert') {
+      insertPlainText(cmd.text)
+      syncFromDom()
+      return true
+    }
+    if (cmd.type === 'wrap') {
+      const text = window.getSelection()?.toString() ?? ''
+      insertPlainText(`${cmd.before}${text}${cmd.after}`)
+      syncFromDom()
+      return true
+    }
+    if (cmd.type === 'format') {
+      applyEditorFormat(cmd.kind)
+      return true
+    }
+    return false
   }
 
   const menu = tableMenu

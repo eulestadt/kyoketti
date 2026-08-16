@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Files,
   Search,
@@ -15,6 +15,7 @@ import {
   Sun,
   Maximize2,
   Minimize2,
+  Terminal,
 } from 'lucide-react'
 import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
@@ -24,21 +25,41 @@ import { GraphView } from './graph/GraphView'
 import { MarkdownEditor } from './editor/MarkdownEditor'
 import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
+import { CommandPalette } from './search/CommandPalette'
 import { displayNoteName } from '../lib/noteNames'
 import { isBaseFileName } from '../lib/bases'
 import { isCanvasFileName } from '../lib/canvas'
 import { compactItems, ContextMenu, useContextMenu } from './ui/ContextMenu'
 import { copyPath, copyWikilink } from '../lib/clipboard'
+import { buildAppCommands } from '../commands/appCommands'
+import {
+  hotkeyAllowedWhileTyping,
+  hotkeyEventMatch,
+  isTypingField,
+} from '../lib/commandStore'
+import { insertSnippet, openEditorSearch } from '../lib/editorBridge'
+import { parseYamlFrontmatter } from '../lib/bases/frontmatter'
+import { loadBookmarks } from '../lib/bookmarks'
 import type { OpenTab } from '../types'
 import './Workspace.css'
 
 const PURE_KEY = 'kyoketti.pureMode'
+const LEFT_COLLAPSED_KEY = 'kyoketti.leftCollapsed'
+const RIBBON_HIDDEN_KEY = 'kyoketti.ribbonHidden'
 
-function loadPureMode(): boolean {
+function loadFlag(key: string, onValue = '1'): boolean {
   try {
-    return localStorage.getItem(PURE_KEY) === '1'
+    return localStorage.getItem(key) === onValue
   } catch {
     return false
+  }
+}
+
+function persistFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0')
+  } catch {
+    /* ignore */
   }
 }
 
@@ -52,6 +73,9 @@ export function Workspace() {
     closeOtherTabs,
     closeAllTabs,
     closeTabsToTheRight,
+    goBack,
+    goForward,
+    undoCloseTab,
     index,
     leftPanel,
     setLeftPanel,
@@ -66,20 +90,56 @@ export function Workspace() {
     clearVault,
     disconnect,
     createNote,
+    createBase,
+    createCanvas,
+    createDirectory,
+    renameNode,
+    deleteNode,
+    duplicateFile,
+    saveActiveFile,
+    writeFileContent,
+    setEditorContent,
+    editorContent,
+    setSearchQuery,
+    localGraph,
+    setLocalGraph,
+    revealInNavigation,
+    expandAllFolders,
+    collapseAllFolders,
     session,
     local,
     authProvider,
     error,
   } = useApp()
 
-  const { theme, toggleTheme } = useTheme()
+  const { theme, setTheme, toggleTheme } = useTheme()
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [picker, setPicker] = useState<null | 'template' | 'bookmarks'>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [pureMode, setPureMode] = useState(loadPureMode)
+  const [pureMode, setPureMode] = useState(() => loadFlag(PURE_KEY))
+  const [leftCollapsed, setLeftCollapsedState] = useState(() => loadFlag(LEFT_COLLAPSED_KEY))
+  const [ribbonHidden, setRibbonHiddenState] = useState(() => loadFlag(RIBBON_HIDDEN_KEY))
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement))
   const activeTabRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const { menu: tabMenu, open: openTabMenu, close: closeTabMenu } = useContextMenu<OpenTab>()
+
+  const setLeftCollapsed = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setLeftCollapsedState((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value
+      persistFlag(LEFT_COLLAPSED_KEY, next)
+      return next
+    })
+  }, [])
+
+  const setRibbonHidden = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setRibbonHiddenState((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value
+      persistFlag(RIBBON_HIDDEN_KEY, next)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
@@ -90,7 +150,6 @@ export function Workspace() {
     if (!el) return
     function onWheel(e: WheelEvent) {
       if (!el) return
-      // Convert vertical wheel / trackpad into horizontal tab scrolling.
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) {
         e.preventDefault()
         el.scrollLeft += e.deltaY
@@ -100,17 +159,155 @@ export function Workspace() {
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  function togglePureMode(next?: boolean) {
+  const togglePureMode = useCallback((next?: boolean) => {
     setPureMode((prev) => {
       const value = typeof next === 'boolean' ? next : !prev
-      try {
-        localStorage.setItem(PURE_KEY, value ? '1' : '0')
-      } catch {
-        /* ignore */
-      }
+      persistFlag(PURE_KEY, value)
       return value
     })
+  }, [])
+
+  const printReading = useCallback(() => {
+    const previousMode = viewMode
+    setViewMode('reading')
+    const printFn = () => {
+      const restore = () => {
+        if (previousMode !== 'reading') setViewMode(previousMode)
+        window.removeEventListener('afterprint', restore)
+      }
+      window.addEventListener('afterprint', restore)
+      window.print()
+    }
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(printFn)
+    })
+  }, [viewMode, setViewMode])
+
+  function insertTemplate(id: string) {
+    const note = index.notesById.get(id)
+    if (!note) return
+    const { body } = parseYamlFrontmatter(note.content)
+    const text = body.trimEnd() ? `${body.trimEnd()}\n` : body
+    const apply = () => {
+      if (!insertSnippet(text)) {
+        setEditorContent(
+          editorContent && !editorContent.endsWith('\n') ? `${editorContent}\n${text}` : `${editorContent}${text}`,
+        )
+      }
+    }
+    if (viewMode === 'reading') {
+      setViewMode('source')
+      window.setTimeout(apply, 80)
+      return
+    }
+    apply()
   }
+
+  const commands = useMemo(
+    () =>
+      buildAppCommands({
+        vault,
+        index,
+        tabs,
+        activeFileId,
+        editorContent,
+        viewMode,
+        leftPanel,
+        rightPanel,
+        localGraph,
+        theme,
+        leftCollapsed,
+        ribbonHidden,
+        pureMode,
+        openFile,
+        closeTab,
+        closeOtherTabs,
+        closeAllTabs,
+        closeTabsToTheRight,
+        goBack,
+        goForward,
+        undoCloseTab,
+        createNote,
+        createBase,
+        createCanvas,
+        createDirectory,
+        renameNode,
+        deleteNode,
+        duplicateFile,
+        saveActiveFile,
+        writeFileContent,
+        setEditorContent,
+        setViewMode,
+        setLeftPanel,
+        setRightPanel,
+        setSearchQuery,
+        setLocalGraph,
+        revealInNavigation,
+        expandAllFolders,
+        collapseAllFolders,
+        refreshVault,
+        clearVault,
+        setTheme,
+        toggleTheme,
+        setLeftCollapsed,
+        setRibbonHidden,
+        togglePureMode,
+        openSwitcher: () => setSwitcherOpen(true),
+        openSettings: () => setSettingsOpen(true),
+        openTemplatePicker: () => setPicker('template'),
+        openBookmarks: () => setPicker('bookmarks'),
+        printReading,
+      }),
+    [
+      vault,
+      index,
+      tabs,
+      activeFileId,
+      editorContent,
+      viewMode,
+      leftPanel,
+      rightPanel,
+      localGraph,
+      theme,
+      leftCollapsed,
+      ribbonHidden,
+      pureMode,
+      openFile,
+      closeTab,
+      closeOtherTabs,
+      closeAllTabs,
+      closeTabsToTheRight,
+      goBack,
+      goForward,
+      undoCloseTab,
+      createNote,
+      createBase,
+      createCanvas,
+      createDirectory,
+      renameNode,
+      deleteNode,
+      duplicateFile,
+      saveActiveFile,
+      writeFileContent,
+      setEditorContent,
+      setViewMode,
+      setLeftPanel,
+      setRightPanel,
+      setSearchQuery,
+      setLocalGraph,
+      revealInNavigation,
+      expandAllFolders,
+      collapseAllFolders,
+      refreshVault,
+      clearVault,
+      setTheme,
+      toggleTheme,
+      setLeftCollapsed,
+      setRibbonHidden,
+      togglePureMode,
+      printReading,
+    ],
+  )
 
   useEffect(() => {
     function onFullscreenChange() {
@@ -122,79 +319,89 @@ export function Workspace() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key.toLowerCase() === 'o') {
+      if (hotkeyEventMatch(e, 'Mod+P') && commands.find((c) => c.id === 'command-palette:open')) {
         e.preventDefault()
-        setSwitcherOpen(true)
-      }
-      if (mod && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-      }
-      if (mod && e.key.toLowerCase() === 'n') {
-        e.preventDefault()
-        if (vault) void createNote(vault.folderId, 'Untitled')
-      }
-      // Pure editor mode: Ctrl/Cmd+Shift+P
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
-        e.preventDefault()
-        togglePureMode()
+        setPaletteOpen((open) => !open)
+        setSwitcherOpen(false)
+        setPicker(null)
         return
       }
-      // Print Reading view: Ctrl/Cmd+P
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
-        e.preventDefault()
-        const previousMode = viewMode
-        setViewMode('reading')
-        const printReading = () => {
-          const restore = () => {
-            if (previousMode !== 'reading') setViewMode(previousMode)
-            window.removeEventListener('afterprint', restore)
-          }
-          window.addEventListener('afterprint', restore)
-          window.print()
-        }
-        // Wait a frame so Reading view is mounted before the print dialog.
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(printReading)
-        })
-        return
-      }
+
       if (e.key === 'Escape') {
+        if (paletteOpen) {
+          setPaletteOpen(false)
+          return
+        }
         if (switcherOpen) {
           setSwitcherOpen(false)
+          return
+        }
+        if (picker) {
+          setPicker(null)
+          return
+        }
+        if (settingsOpen) {
+          setSettingsOpen(false)
           return
         }
         if (pureMode) {
           togglePureMode(false)
         }
+        return
+      }
+
+      if (paletteOpen || switcherOpen || picker || settingsOpen) return
+      if (e.defaultPrevented) return
+
+      const typing = isTypingField(e.target)
+      for (const command of commands) {
+        if (!command.hotkey || command.bind === false) continue
+        if (!hotkeyEventMatch(e, command.hotkey)) continue
+        if (typing && !hotkeyAllowedWhileTyping(command.hotkey)) continue
+        if (command.id === 'editor:open-search') {
+          if (openEditorSearch()) e.preventDefault()
+          return
+        }
+        e.preventDefault()
+        void command.run()
+        return
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [vault, createNote, pureMode, switcherOpen, viewMode, setViewMode])
+  }, [commands, paletteOpen, switcherOpen, picker, settingsOpen, pureMode, togglePureMode])
 
   const activeTab = tabs.find((t) => t.id === activeFileId)
   const activeIsBase = activeTab ? isBaseFileName(activeTab.name) : false
   const activeIsCanvas = activeTab ? isCanvasFileName(activeTab.name) : false
   const hideMarkdownModes = activeIsBase || activeIsCanvas
+  const bookmarkItems = picker === 'bookmarks'
+    ? loadBookmarks().map((b) => ({ id: b.id, title: b.name, path: b.path }))
+    : undefined
 
   return (
     <div
-      className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''} ${pureMode && isFullscreen ? 'pure-fullscreen' : ''}`}
+      className={`workspace ${leftPanel === 'graph' ? 'graph-mode' : ''} ${pureMode ? 'pure-mode' : ''} ${pureMode && isFullscreen ? 'pure-fullscreen' : ''} ${leftCollapsed ? 'left-collapsed' : ''} ${ribbonHidden ? 'ribbon-hidden' : ''}`}
     >
-      {!pureMode && (
+      {!pureMode && !ribbonHidden && (
         <nav className="ribbon" aria-label="Primary">
           <button
             className={leftPanel === 'files' ? 'active' : ''}
             title="Files"
-            onClick={() => setLeftPanel('files')}
+            onClick={() => {
+              setLeftCollapsed(false)
+              setLeftPanel('files')
+            }}
           >
             <Files size={18} />
           </button>
           <button
             className={leftPanel === 'search' ? 'active' : ''}
             title="Search"
-            onClick={() => setLeftPanel('search')}
+            onClick={() => {
+              setLeftCollapsed(false)
+              setLeftPanel('search')
+            }}
           >
             <Search size={18} />
           </button>
@@ -204,6 +411,12 @@ export function Workspace() {
             onClick={() => setLeftPanel('graph')}
           >
             <Network size={18} />
+          </button>
+          <button
+            title="Command palette (Ctrl/Cmd+P)"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Terminal size={18} />
           </button>
           <div className="ribbon-spacer" />
           <button
@@ -371,7 +584,22 @@ export function Workspace() {
         </button>
       )}
 
+      <CommandPalette open={paletteOpen} commands={commands} onClose={() => setPaletteOpen(false)} />
       <QuickSwitcher open={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+      <QuickSwitcher
+        open={picker === 'template'}
+        onClose={() => setPicker(null)}
+        placeholder="Insert template — pick a note"
+        emptyText="No matching notes"
+        onChoose={(id) => insertTemplate(id)}
+      />
+      <QuickSwitcher
+        open={picker === 'bookmarks'}
+        onClose={() => setPicker(null)}
+        placeholder="Bookmarks"
+        items={bookmarkItems}
+        emptyText="No bookmarks yet"
+      />
 
       {settingsOpen && (
         <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
@@ -406,10 +634,10 @@ export function Workspace() {
             </div>
             <p className="settings-hint">
               {local
-                ? 'Local mode reads and writes a folder on this device. If that folder is in iCloud Drive, Apple syncs it. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
+                ? 'Local mode reads and writes a folder on this device. If that folder is in iCloud Drive, Apple syncs it. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
                 : authProvider === 'github'
-                  ? 'GitHub mode stores notes as markdown in your repo. Each save creates a commit. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
-                  : 'Sign out ends this device session. Your vault folder stays linked to your Google account for the next sign-in. Shortcuts: Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'}
+                  ? 'GitHub mode stores notes as markdown in your repo. Each save creates a commit. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
+                  : 'Sign out ends this device session. Your vault folder stays linked to your Google account for the next sign-in. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'}
             </p>
           </div>
         </div>

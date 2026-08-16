@@ -1,12 +1,15 @@
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { search } from '@codemirror/search'
 import { EditorView } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { useTheme } from '../../hooks/useTheme'
 import { isBaseFileName } from '../../lib/bases'
 import { isCanvasFileName } from '../../lib/canvas'
+import { applyCmCommand } from '../../lib/cmCommands'
+import { subscribeEditor } from '../../lib/editorBridge'
 import { BaseViewer } from '../bases/BaseViewer'
 import { CanvasViewer } from '../canvas/CanvasViewer'
 import { WysiwygEditor } from './WysiwygEditor'
@@ -18,6 +21,51 @@ const editorChrome = EditorView.theme({
   '.cm-scroller': { overflow: 'auto', width: '100%', maxWidth: '100%' },
   '.cm-content': { maxWidth: '100%' },
 })
+
+function SourceEditor({
+  value,
+  onChange,
+  theme,
+  lineNumbers,
+}: {
+  value: string
+  onChange: (value: string) => void
+  theme: 'light' | typeof oneDark
+  lineNumbers: boolean
+}) {
+  const viewRef = useRef<EditorView | null>(null)
+  const extensions = useMemo(
+    () => [markdown({ base: markdownLanguage }), EditorView.lineWrapping, editorChrome, search()],
+    [],
+  )
+
+  useEffect(() => {
+    return subscribeEditor((cmd) => {
+      const view = viewRef.current
+      if (!view) return false
+      return applyCmCommand(view, cmd)
+    })
+  }, [])
+
+  return (
+    <CodeMirror
+      value={value}
+      height="100%"
+      width="100%"
+      theme={theme}
+      extensions={extensions}
+      onChange={onChange}
+      onCreateEditor={(view) => {
+        viewRef.current = view
+      }}
+      basicSetup={{
+        lineNumbers,
+        foldGutter: lineNumbers,
+        highlightActiveLine: true,
+      }}
+    />
+  )
+}
 
 export function MarkdownEditor() {
   const {
@@ -37,18 +85,13 @@ export function MarkdownEditor() {
   const isBase = isBaseFileName(activeName)
   const isCanvas = isCanvasFileName(activeName)
 
-  const extensions = useMemo(
-    () => [markdown({ base: markdownLanguage }), EditorView.lineWrapping, editorChrome],
-    [],
-  )
-
   const editorTheme = theme === 'dark' ? oneDark : 'light'
 
   if (!activeFileId) {
     return (
       <div className="editor-empty">
         <h2>No file open</h2>
-        <p>Select a note from the file explorer, or press Ctrl/Cmd+O to quick switch.</p>
+        <p>Select a note from the file explorer, or press Ctrl/Cmd+O to quick switch. Ctrl/Cmd+P opens the command palette.</p>
       </div>
     )
   }
@@ -96,19 +139,12 @@ export function MarkdownEditor() {
     return (
       <div className="live-split">
         <div className="editor-pane">
-          <CodeMirror
+          <SourceEditor
             key={activeFileId}
             value={editorContent}
-            height="100%"
+            onChange={setEditorContent}
             theme={editorTheme}
-            width="100%"
-            extensions={extensions}
-            onChange={(value) => setEditorContent(value)}
-            basicSetup={{
-              lineNumbers: false,
-              foldGutter: false,
-              highlightActiveLine: true,
-            }}
+            lineNumbers={false}
           />
         </div>
         <div className="preview-pane">
@@ -126,19 +162,12 @@ export function MarkdownEditor() {
 
   return (
     <div className="editor-pane full">
-      <CodeMirror
+      <SourceEditor
         key={activeFileId}
         value={editorContent}
-        height="100%"
-        width="100%"
+        onChange={setEditorContent}
         theme={editorTheme}
-        extensions={extensions}
-        onChange={(value) => setEditorContent(value)}
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
-          highlightActiveLine: true,
-        }}
+        lineNumbers
       />
     </div>
   )

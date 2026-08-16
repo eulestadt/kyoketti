@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useApp } from '../../hooks/useApp'
 import { buildOutline } from '../../lib/markdown'
+import { resolveNoteRef } from '../../lib/vaultIndex'
 import { compactItems, ContextMenu, useContextMenu } from '../ui/ContextMenu'
 import { noteMenuItems } from '../ui/noteMenu'
 import { copyText } from '../../lib/clipboard'
@@ -34,6 +35,16 @@ export function RightSidebar() {
 
   const outline = useMemo(() => buildOutline(editorContent), [editorContent])
 
+  const outgoing = useMemo(() => {
+    if (!activeFileId) return []
+    const note = index.notesById.get(activeFileId)
+    if (!note) return []
+    return note.links.map((ref) => ({
+      ref,
+      target: resolveNoteRef(index, ref, { fromPath: note.path }),
+    }))
+  }, [activeFileId, index])
+
   const tags = useMemo(() => {
     return [...index.tags.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -47,6 +58,9 @@ export function RightSidebar() {
       <div className="right-tabs">
         <button className={rightPanel === 'backlinks' ? 'active' : ''} onClick={() => setRightPanel('backlinks')}>
           Backlinks
+        </button>
+        <button className={rightPanel === 'outgoing' ? 'active' : ''} onClick={() => setRightPanel('outgoing')}>
+          Outgoing
         </button>
         <button className={rightPanel === 'outline' ? 'active' : ''} onClick={() => setRightPanel('outline')}>
           Outline
@@ -67,6 +81,26 @@ export function RightSidebar() {
                   <button onClick={() => void openFile(note.id)}>{note.title}</button>
                 </li>
               ) : null,
+            )}
+          </ul>
+        </div>
+      )}
+
+      {rightPanel === 'outgoing' && (
+        <div className="right-body">
+          <h3>Outgoing links</h3>
+          {outgoing.length === 0 && <p className="muted">No outgoing links in this note.</p>}
+          <ul>
+            {outgoing.map(({ ref, target }) =>
+              target ? (
+                <li key={`${target.id}-${ref}`} onContextMenu={(e) => open(e, { kind: 'note', note: target })}>
+                  <button onClick={() => void openFile(target.id)}>{target.title}</button>
+                </li>
+              ) : (
+                <li key={`unresolved-${ref}`}>
+                  <span className="muted">{ref}</span>
+                </li>
+              ),
             )}
           </ul>
         </div>

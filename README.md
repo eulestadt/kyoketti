@@ -9,7 +9,7 @@ A web markdown vault with Google Drive, GitHub, local folder, and demo backends.
 - File explorer with create / rename / delete
 - Markdown editor: source, live preview, WYSIWYG, reading, pure editor
 - `[[wiki links]]`, tags, backlinks, outline, and graph view
-- Quick switcher (`Ctrl/Cmd+O`) and vault search
+- Quick switcher (`Ctrl/Cmd+O`), command palette (`Ctrl/Cmd+P`), and vault search
 - Autosave (Drive writes or GitHub commits)
 
 ## Setup

@@ -17,10 +17,32 @@ type SimNode = {
 }
 
 export function GraphView() {
-  const { index, openFile, activeFileId, renameNode, deleteNode, duplicateFile } = useApp()
+  const {
+    index,
+    openFile,
+    activeFileId,
+    renameNode,
+    deleteNode,
+    duplicateFile,
+    localGraph,
+    setLocalGraph,
+  } = useApp()
   const { theme } = useTheme()
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const graph = useMemo(() => buildGraph(index), [index])
+  const fullGraph = useMemo(() => buildGraph(index), [index])
+  const graph = useMemo(() => {
+    if (!localGraph) return fullGraph
+    if (!activeFileId) return { nodes: [], links: [] }
+    const neighborIds = new Set<string>([activeFileId])
+    for (const link of fullGraph.links) {
+      if (link.source === activeFileId) neighborIds.add(link.target)
+      if (link.target === activeFileId) neighborIds.add(link.source)
+    }
+    return {
+      nodes: fullGraph.nodes.filter((n) => neighborIds.has(n.id)),
+      links: fullGraph.links.filter((l) => neighborIds.has(l.source) && neighborIds.has(l.target)),
+    }
+  }, [fullGraph, localGraph, activeFileId])
   const { menu, open, close } = useContextMenu<{ id: string }>()
 
   useEffect(() => {
@@ -178,10 +200,26 @@ export function GraphView() {
   return (
     <div className="graph-view">
       <div className="graph-toolbar">
-        <strong>Graph view</strong>
-        <span>
-          {graph.nodes.length} notes · {graph.links.length} links
-        </span>
+        <strong>{localGraph ? 'Local graph' : 'Graph view'}</strong>
+        <div className="graph-toolbar-actions">
+          <span>
+            {graph.nodes.length} notes · {graph.links.length} links
+          </span>
+          <button
+            type="button"
+            className={!localGraph ? 'active' : ''}
+            onClick={() => setLocalGraph(false)}
+          >
+            Global
+          </button>
+          <button
+            type="button"
+            className={localGraph ? 'active' : ''}
+            onClick={() => setLocalGraph(true)}
+          >
+            Local
+          </button>
+        </div>
       </div>
       <canvas ref={canvasRef} />
       {menu && (() => {
