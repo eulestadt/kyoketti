@@ -61,6 +61,7 @@ export type AuthSession = {
   name?: string
   picture?: string
   provider?: AuthProvider
+  githubScopes?: string
 }
 
 export type VaultConfig = {

@@ -53,7 +53,7 @@ export function fetchDriveToken(): Promise<{ accessToken: string; expiresIn: num
   return api('/api/auth/drive-token', { method: 'POST' })
 }
 
-export function fetchGithubToken(): Promise<{ accessToken: string; expiresIn: number }> {
+export function fetchGithubToken(): Promise<{ accessToken: string; expiresIn: number; scopes?: string }> {
   return api('/api/auth/github-token', { method: 'POST' })
 }
 

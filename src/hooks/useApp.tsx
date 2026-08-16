@@ -304,14 +304,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return current.accessToken
     }
     const provider = current?.provider ?? 'google'
-    const tokens = provider === 'github' ? await fetchGithubToken() : await fetchDriveToken()
+    let accessToken: string
+    let expiresIn: number
+    let githubScopes = current?.githubScopes
+    if (provider === 'github') {
+      const tokens = await fetchGithubToken()
+      accessToken = tokens.accessToken
+      expiresIn = tokens.expiresIn
+      githubScopes = tokens.scopes
+    } else {
+      const tokens = await fetchDriveToken()
+      accessToken = tokens.accessToken
+      expiresIn = tokens.expiresIn
+    }
     const next: AuthSession = {
-      accessToken: tokens.accessToken,
-      expiresAt: Date.now() + tokens.expiresIn * 1000,
+      accessToken,
+      expiresAt: Date.now() + expiresIn * 1000,
       email: current?.email,
       name: current?.name,
       picture: current?.picture,
       provider,
+      githubScopes,
     }
     setSession(next)
     sessionRef.current = next
@@ -386,15 +399,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLocal(false)
         disableDemoMode()
         const provider: AuthProvider = me.user.provider === 'github' ? 'github' : 'google'
-        const tokens = provider === 'github' ? await fetchGithubToken() : await fetchDriveToken()
+        let accessToken: string
+        let expiresIn: number
+        let githubScopes: string | undefined
+        if (provider === 'github') {
+          const tokens = await fetchGithubToken()
+          accessToken = tokens.accessToken
+          expiresIn = tokens.expiresIn
+          githubScopes = tokens.scopes
+        } else {
+          const tokens = await fetchDriveToken()
+          accessToken = tokens.accessToken
+          expiresIn = tokens.expiresIn
+        }
         if (cancelled) return
         setSession({
-          accessToken: tokens.accessToken,
-          expiresAt: Date.now() + tokens.expiresIn * 1000,
+          accessToken,
+          expiresAt: Date.now() + expiresIn * 1000,
           email: me.user.email ?? undefined,
           name: me.user.name ?? undefined,
           picture: me.user.picture ?? undefined,
           provider,
+          githubScopes,
         })
         if (me.vault) {
           localStorage.setItem(VAULT_KEY, JSON.stringify(me.vault))

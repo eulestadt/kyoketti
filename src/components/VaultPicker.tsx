@@ -4,7 +4,9 @@ import { useApp } from '../hooks/useApp'
 import { useTheme } from '../hooks/useTheme'
 import { createFolder, searchFolders } from '../lib/googleDrive'
 import {
+  canPushGithubRepo,
   createGithubVaultRepo,
+  githubTokenCanPush,
   listGithubRepos,
   type GithubRepo,
 } from '../lib/githubVault'
@@ -48,19 +50,7 @@ export function VaultPicker() {
   async function runSearch(value: string) {
     if (!session) return
     setQuery(value)
-    if (isGithub) {
-      setSearching(true)
-      setError(null)
-      try {
-        const list = await listGithubRepos(session.accessToken, value)
-        setRepos(list)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Repository search failed')
-      } finally {
-        setSearching(false)
-      }
-      return
-    }
+    if (isGithub) return
     if (!value.trim()) {
       setResults([])
       return
@@ -120,7 +110,7 @@ export function VaultPicker() {
           <h1>Open a vault</h1>
           <p className="vault-sub">
             {isGithub
-              ? 'Choose a private GitHub repository to use as your markdown vault.'
+              ? 'Choose a GitHub repository you can push to. Public or collaborator-read repos can be opened for viewing, but saves need write access.'
               : 'Choose a Google Drive folder to use as your markdown vault.'}
           </p>
         </div>
@@ -169,21 +159,36 @@ export function VaultPicker() {
         </label>
         <ul className="folder-results">
           {isGithub
-            ? filteredRepos.map((repo) => (
+            ? filteredRepos.map((repo) => {
+                const writable = canPushGithubRepo(repo)
+                return (
                 <li key={repo.id}>
                   <button
-                    onClick={() =>
+                    onClick={() => {
+                      if (!writable) {
+                        setError(
+                          `${repo.full_name} is read-only for this GitHub account. You can view notes, but saves will fail. Create a new vault or pick a repository with push access.`,
+                        )
+                      } else if (!githubTokenCanPush(session?.githubScopes)) {
+                        setError(
+                          'This GitHub login is missing the repo permission needed to save. Sign out and sign in with GitHub again, and accept access to repositories.',
+                        )
+                      } else {
+                        setError(null)
+                      }
                       void setVault({ folderId: repo.full_name, folderName: repo.full_name })
-                    }
+                    }}
                   >
                     {repo.private ? <Lock size={16} /> : <FolderOpen size={16} />}
                     <span>
                       {repo.full_name}
                       {repo.private ? '' : ' (public)'}
+                      {writable ? '' : ' (read-only)'}
                     </span>
                   </button>
                 </li>
-              ))
+                )
+              })
             : results.map((folder) => (
                 <li key={folder.id}>
                   <button

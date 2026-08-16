@@ -21,6 +21,22 @@ export type GithubRepo = {
   default_branch: string
   html_url: string
   updated_at: string
+  permissions?: {
+    admin?: boolean
+    push?: boolean
+    pull?: boolean
+  }
+}
+
+export function githubTokenCanPush(scopes?: string): boolean {
+  if (!scopes?.trim()) return true
+  const parts = scopes.split(',').map((s) => s.trim())
+  return parts.includes('repo') || parts.includes('public_repo')
+}
+
+export function canPushGithubRepo(repo: GithubRepo): boolean {
+  if (repo.permissions && typeof repo.permissions.push === 'boolean') return repo.permissions.push
+  return true
 }
 
 function parseRepoId(folderId: string): { owner: string; repo: string } {
@@ -54,13 +70,21 @@ async function ghFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const browser = typeof window !== 'undefined'
   const res = await fetch(`${API}${path}`, {
+    cache: 'no-store',
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'Kyoketti',
-      'X-GitHub-Api-Version': '2022-11-28',
+      // User-Agent and X-GitHub-Api-Version are not CORS-safelisted; sending them
+      // from the browser can fail PUT preflights while GET still appears to work.
+      ...(browser
+        ? {}
+        : {
+            'User-Agent': 'Kyoketti',
+            'X-GitHub-Api-Version': '2022-11-28',
+          }),
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...init?.headers,
     },
@@ -95,24 +119,7 @@ function fromBase64(content: string): string {
   return new TextDecoder().decode(bytes)
 }
 
-export async function listGithubRepos(
-  accessToken: string,
-  query = '',
-): Promise<GithubRepo[]> {
-  const q = query.trim()
-  if (q) {
-    const params = new URLSearchParams({
-      q: `${q} in:name fork:true`,
-      per_page: '30',
-      sort: 'updated',
-    })
-    const data = await ghFetch<{ items?: GithubRepo[] }>(
-      accessToken,
-      `/search/repositories?${params}`,
-    )
-    return data.items ?? []
-  }
-
+export async function listGithubRepos(accessToken: string): Promise<GithubRepo[]> {
   const repos: GithubRepo[] = []
   let page = 1
   while (page <= 5) {
@@ -164,14 +171,14 @@ export async function createGithubVaultRepo(
   })
 
   // Seed .gitignore + Welcome.md so the repo is immediately usable.
-  await putGithubFile(
+  await commitGithubFile(
     accessToken,
     repo.full_name,
     '.gitignore',
     DEFAULT_GITIGNORE,
     'chore: add vault .gitignore',
   )
-  await putGithubFile(
+  await commitGithubFile(
     accessToken,
     repo.full_name,
     'Welcome.md',
@@ -306,17 +313,91 @@ export async function listGithubVaultTree(
   }
 }
 
+const branchCache = new Map<string, string>()
+const repoWriteChains = new Map<string, Promise<unknown>>()
+
+function withRepoWrite<T>(repoId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = repoWriteChains.get(repoId) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  repoWriteChains.set(
+    repoId,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  )
+  return next
+}
+
+async function getDefaultBranch(accessToken: string, repoId: string): Promise<string> {
+  const cached = branchCache.get(repoId)
+  if (cached) return cached
+  const { owner, repo } = parseRepoId(repoId)
+  const meta = await ghFetch<{ default_branch?: string }>(accessToken, `/repos/${owner}/${repo}`)
+  const branch = meta.default_branch || 'main'
+  branchCache.set(repoId, branch)
+  return branch
+}
+
+function rethrowWrite(err: unknown): never {
+  if (err instanceof GithubError) {
+    const msg = err.message
+    const noPush =
+      err.status === 403 ||
+      err.status === 401 ||
+      /not accessible by integration/i.test(msg) ||
+      /resource not accessible/i.test(msg) ||
+      /must have push access/i.test(msg) ||
+      /resource protected by organization sso/i.test(msg) ||
+      /saml enforcement/i.test(msg)
+    if (noPush) {
+      throw new GithubError(
+        `GitHub refused to save: ${msg} Viewing can still work on public or cached files. Sign out and sign in with GitHub again, accept repository (repo) access, and pick a repo you can push to. If Kyoketti is installed as a GitHub App, set Contents to Read and write.`,
+        err.status,
+      )
+    }
+    if (err.status === 409) {
+      throw new GithubError(`GitHub save conflict: ${msg}. Wait a moment and try again.`, err.status)
+    }
+    if (err.status === 422 && /sha/i.test(msg)) {
+      throw new GithubError(
+        `GitHub needs the current file SHA to save: ${msg}`,
+        err.status,
+      )
+    }
+  }
+  throw err
+}
+
 async function getContentMeta(
   accessToken: string,
   owner: string,
   repo: string,
   path: string,
+  branch?: string,
 ): Promise<{ sha: string; content?: string; encoding?: string } | null> {
+  const ref = branch ? `?ref=${encodeURIComponent(branch)}` : ''
   try {
-    return await ghFetch<{ sha: string; content?: string; encoding?: string }>(
+    const data = await ghFetch<unknown>(
       accessToken,
-      `/repos/${owner}/${repo}/contents/${contentsPath(path)}`,
+      `/repos/${owner}/${repo}/contents/${contentsPath(path)}${ref}`,
     )
+    if (Array.isArray(data)) {
+      const name = path.split('/').pop()
+      const entry = data.find(
+        (row) =>
+          row &&
+          typeof row === 'object' &&
+          'name' in row &&
+          (row as { name?: string }).name === name &&
+          (row as { type?: string }).type !== 'dir',
+      ) as { sha?: string } | undefined
+      return entry?.sha ? { sha: entry.sha } : null
+    }
+    if (!data || typeof data !== 'object') return null
+    const obj = data as { sha?: string; type?: string; content?: string; encoding?: string }
+    if (obj.type === 'dir' || !obj.sha) return null
+    return { sha: obj.sha, content: obj.content, encoding: obj.encoding }
   } catch (err) {
     if (err instanceof GithubError && err.status === 404) return null
     throw err
@@ -327,18 +408,17 @@ export async function githubRead(accessToken: string, repoId: string, fileId: st
   const { owner, repo } = parseRepoId(repoId)
   const path = parsePathId(fileId, repoId)
   if (!path) throw new GithubError('Cannot read repository root', 400)
-  const meta = await getContentMeta(accessToken, owner, repo, path)
+  const branch = await getDefaultBranch(accessToken, repoId)
+  const meta = await getContentMeta(accessToken, owner, repo, path, branch)
   if (!meta) throw new GithubError('File not found', 404)
   if (meta.content && meta.encoding === 'base64') return fromBase64(meta.content)
-  // Fallback: raw download for large files
   const res = await fetch(
-    `${API}/repos/${owner}/${repo}/contents/${contentsPath(path)}`,
+    `${API}/repos/${owner}/${repo}/contents/${contentsPath(path)}?ref=${encodeURIComponent(branch)}`,
     {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/vnd.github.raw',
-        'User-Agent': 'Kyoketti',
-        'X-GitHub-Api-Version': '2022-11-28',
       },
     },
   )
@@ -353,6 +433,7 @@ async function putGithubFile(
   content: string,
   message: string,
   sha?: string,
+  branch?: string,
 ): Promise<DriveFile> {
   const { owner, repo } = parseRepoId(repoId)
   const body: Record<string, string> = {
@@ -360,26 +441,57 @@ async function putGithubFile(
     content: toBase64(content),
   }
   if (sha) body.sha = sha
+  if (branch) body.branch = branch
   const result = await ghFetch<{
-    content: { path: string; sha: string; size?: number; name: string }
+    content?: { path: string; sha: string; size?: number; name: string } | null
   }>(accessToken, `/repos/${owner}/${repo}/contents/${contentsPath(path)}`, {
     method: 'PUT',
     body: JSON.stringify(body),
   })
+  const name = result.content?.name || path.split('/').pop() || path
   const parentPath = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
   return {
     id: pathId(repoId, path),
-    name: result.content.name,
-    mimeType: /\.(md|markdown)$/i.test(result.content.name)
+    name,
+    mimeType: /\.(md|markdown)$/i.test(name)
       ? MD_MIME
-      : /\.base$/i.test(result.content.name)
+      : /\.base$/i.test(name)
         ? 'application/x-obsidian-base'
-        : /\.canvas$/i.test(result.content.name)
+        : /\.canvas$/i.test(name)
           ? 'application/x-obsidian-canvas'
           : 'application/octet-stream',
     parents: [parentPath ? pathId(repoId, parentPath) : repoId],
-    size: result.content.size != null ? String(result.content.size) : undefined,
+    size: result.content?.size != null ? String(result.content.size) : undefined,
   }
+}
+
+async function commitGithubFile(
+  accessToken: string,
+  repoId: string,
+  path: string,
+  content: string,
+  message: string,
+): Promise<DriveFile> {
+  const { owner, repo } = parseRepoId(repoId)
+  return withRepoWrite(repoId, async () => {
+    const branch = await getDefaultBranch(accessToken, repoId)
+    let sha = (await getContentMeta(accessToken, owner, repo, path, branch))?.sha
+    let lastError: unknown
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await putGithubFile(accessToken, repoId, path, content, message, sha, branch)
+      } catch (err) {
+        lastError = err
+        const retryable =
+          err instanceof GithubError &&
+          (err.status === 409 || (err.status === 422 && /sha/i.test(err.message)))
+        if (!retryable || attempt === 3) rethrowWrite(err)
+        sha = (await getContentMeta(accessToken, owner, repo, path, branch))?.sha
+        await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)))
+      }
+    }
+    rethrowWrite(lastError)
+  })
 }
 
 export async function githubWrite(
@@ -390,16 +502,7 @@ export async function githubWrite(
 ): Promise<DriveFile> {
   const path = parsePathId(fileId, repoId)
   if (!path) throw new GithubError('Cannot write repository root', 400)
-  const { owner, repo } = parseRepoId(repoId)
-  const existing = await getContentMeta(accessToken, owner, repo, path)
-  return putGithubFile(
-    accessToken,
-    repoId,
-    path,
-    content,
-    `docs: update ${path}`,
-    existing?.sha,
-  )
+  return commitGithubFile(accessToken, repoId, path, content, `docs: update ${path}`)
 }
 
 export async function githubCreateNote(
@@ -416,7 +519,7 @@ export async function githubCreateNote(
       ? name
       : `${name}.md`
   const path = parentPath ? `${parentPath}/${fileName}` : fileName
-  return putGithubFile(accessToken, repoId, path, content, `docs: create ${path}`)
+  return commitGithubFile(accessToken, repoId, path, content, `docs: create ${path}`)
 }
 
 export async function githubCreateFolder(
@@ -428,13 +531,33 @@ export async function githubCreateFolder(
   const parentPath = parsePathId(parentId, repoId)
   const folderPath = parentPath ? `${parentPath}/${name}` : name
   const keepPath = `${folderPath}/.gitkeep`
-  await putGithubFile(accessToken, repoId, keepPath, '', `chore: create folder ${folderPath}`)
+  await commitGithubFile(accessToken, repoId, keepPath, '', `chore: create folder ${folderPath}`)
   return {
     id: pathId(repoId, folderPath),
     name,
     mimeType: FOLDER_MIME,
     parents: [parentPath ? pathId(repoId, parentPath) : repoId],
   }
+}
+
+async function deleteFileAtPath(
+  accessToken: string,
+  repoId: string,
+  path: string,
+  branch: string,
+): Promise<boolean> {
+  const { owner, repo } = parseRepoId(repoId)
+  const meta = await getContentMeta(accessToken, owner, repo, path, branch)
+  if (!meta) return false
+  await ghFetch(accessToken, `/repos/${owner}/${repo}/contents/${contentsPath(path)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({
+      message: `chore: delete ${path}`,
+      sha: meta.sha,
+      branch,
+    }),
+  })
+  return true
 }
 
 export async function githubRename(
@@ -450,35 +573,50 @@ export async function githubRename(
   const newPath = parent ? `${parent}/${newName}` : newName
   if (newPath === oldPath) return
 
-  // Folder rename: move all blobs under the prefix via the Git Data API would be ideal;
-  // for notes we support file rename (Contents delete + create).
-  const meta = await getContentMeta(accessToken, owner, repo, oldPath)
-  if (!meta) {
-    // Treat as folder: move children
-    const tree = await listGithubVaultTree(accessToken, repoId)
-    const prefix = `${oldPath}/`
-    const children = tree.files.filter(
-      (f) => f.mimeType !== FOLDER_MIME && parsePathId(f.id, repoId).startsWith(prefix),
-    )
-    for (const child of children) {
-      const childPath = parsePathId(child.id, repoId)
-      const nextChildPath = `${newPath}/${childPath.slice(prefix.length)}`
-      const text = await githubRead(accessToken, repoId, child.id)
-      await putGithubFile(accessToken, repoId, nextChildPath, text, `chore: rename ${childPath} → ${nextChildPath}`)
-      await githubDelete(accessToken, repoId, child.id)
+  return withRepoWrite(repoId, async () => {
+    const branch = await getDefaultBranch(accessToken, repoId)
+    const meta = await getContentMeta(accessToken, owner, repo, oldPath, branch)
+    if (!meta) {
+      const tree = await listGithubVaultTree(accessToken, repoId)
+      const prefix = `${oldPath}/`
+      const children = tree.files.filter(
+        (f) => f.mimeType !== FOLDER_MIME && parsePathId(f.id, repoId).startsWith(prefix),
+      )
+      for (const child of children) {
+        const childPath = parsePathId(child.id, repoId)
+        const nextChildPath = `${newPath}/${childPath.slice(prefix.length)}`
+        const text = await githubRead(accessToken, repoId, child.id)
+        await putGithubFile(
+          accessToken,
+          repoId,
+          nextChildPath,
+          text,
+          `chore: rename ${childPath} → ${nextChildPath}`,
+          undefined,
+          branch,
+        )
+        await deleteFileAtPath(accessToken, repoId, childPath, branch)
+      }
+      const keepPath = `${oldPath}/.gitkeep`
+      await deleteFileAtPath(accessToken, repoId, keepPath, branch)
+      return
     }
-    // Remove .gitkeep if present
-    const keep = tree.files.find((f) => parsePathId(f.id, repoId) === `${oldPath}/.gitkeep`)
-    if (keep) await githubDelete(accessToken, repoId, keep.id)
-    return
-  }
 
-  const content =
-    meta.content && meta.encoding === 'base64'
-      ? fromBase64(meta.content)
-      : await githubRead(accessToken, repoId, fileId)
-  await putGithubFile(accessToken, repoId, newPath, content, `chore: rename ${oldPath} → ${newPath}`)
-  await githubDelete(accessToken, repoId, fileId)
+    const content =
+      meta.content && meta.encoding === 'base64'
+        ? fromBase64(meta.content)
+        : await githubRead(accessToken, repoId, fileId)
+    await putGithubFile(
+      accessToken,
+      repoId,
+      newPath,
+      content,
+      `chore: rename ${oldPath} → ${newPath}`,
+      undefined,
+      branch,
+    )
+    await deleteFileAtPath(accessToken, repoId, oldPath, branch)
+  })
 }
 
 export async function githubDelete(
@@ -486,27 +624,18 @@ export async function githubDelete(
   repoId: string,
   fileId: string,
 ): Promise<void> {
-  const { owner, repo } = parseRepoId(repoId)
   const path = parsePathId(fileId, repoId)
   if (!path) throw new GithubError('Cannot delete repository root', 400)
-  const meta = await getContentMeta(accessToken, owner, repo, path)
-  if (!meta) {
-    // Folder delete: remove all files under it
+  return withRepoWrite(repoId, async () => {
+    const branch = await getDefaultBranch(accessToken, repoId)
+    if (await deleteFileAtPath(accessToken, repoId, path, branch)) return
     const tree = await listGithubVaultTree(accessToken, repoId)
     const prefix = `${path}/`
     const children = tree.files.filter(
       (f) => f.mimeType !== FOLDER_MIME && parsePathId(f.id, repoId).startsWith(prefix),
     )
     for (const child of children) {
-      await githubDelete(accessToken, repoId, child.id)
+      await deleteFileAtPath(accessToken, repoId, parsePathId(child.id, repoId), branch)
     }
-    return
-  }
-  await ghFetch(accessToken, `/repos/${owner}/${repo}/contents/${contentsPath(path)}`, {
-    method: 'DELETE',
-    body: JSON.stringify({
-      message: `chore: delete ${path}`,
-      sha: meta.sha,
-    }),
   })
 }

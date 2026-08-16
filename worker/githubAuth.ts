@@ -149,7 +149,7 @@ export async function upsertUserFromGithub(
 export async function getGithubAccessToken(
   env: Env,
   user: UserRow,
-): Promise<{ accessToken: string; expiresIn: number }> {
+): Promise<{ accessToken: string; expiresIn: number; scopes: string }> {
   const accessToken = await decryptSecret(user.refresh_token_enc, env.SESSION_SECRET)
   const probe = await fetch('https://api.github.com/user', {
     headers: {
@@ -162,5 +162,6 @@ export async function getGithubAccessToken(
   if (!probe.ok) {
     throw new Error('GitHub token expired or revoked. Sign in again.')
   }
-  return { accessToken, expiresIn: 60 * 60 * 8 }
+  const scopes = probe.headers.get('X-OAuth-Scopes') ?? ''
+  return { accessToken, expiresIn: 60 * 60 * 8, scopes }
 }
