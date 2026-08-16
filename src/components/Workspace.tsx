@@ -110,6 +110,11 @@ export function Workspace() {
     local,
     authProvider,
     error,
+    offline,
+    pendingCount,
+    localPermissionNeeded,
+    syncPending,
+    grantLocalAccess,
   } = useApp()
 
   const { theme, setTheme, toggleTheme } = useTheme()
@@ -246,6 +251,8 @@ export function Workspace() {
         expandAllFolders,
         collapseAllFolders,
         refreshVault,
+        syncPending,
+        pendingCount,
         clearVault,
         setTheme,
         toggleTheme,
@@ -299,6 +306,8 @@ export function Workspace() {
       expandAllFolders,
       collapseAllFolders,
       refreshVault,
+      syncPending,
+      pendingCount,
       clearVault,
       setTheme,
       toggleTheme,
@@ -447,6 +456,14 @@ export function Workspace() {
               <RefreshCw size={14} className={loadingVault ? 'spin' : ''} />
             </button>
           </div>
+          {localPermissionNeeded && (
+            <div className="offline-banner">
+              <span>Folder access is needed to save to disk.</span>
+              <button type="button" onClick={() => void grantLocalAccess()}>
+                Allow access
+              </button>
+            </div>
+          )}
           {leftPanel === 'files' ? <FileTree /> : <GlobalSearch />}
         </aside>
       )}
@@ -564,7 +581,22 @@ export function Workspace() {
         {!pureMode && (
           <footer className="status-bar">
             <span>{statusMessage}</span>
-            <span className={`save-pill ${saveStatus}`}>{saveStatus}</span>
+            <span className="status-right">
+              {offline && <span className="offline-pill">Offline</span>}
+              {pendingCount > 0 && (
+                <button
+                  type="button"
+                  className="sync-pill"
+                  onClick={() => void syncPending()}
+                  title="Sync pending changes"
+                >
+                  {pendingCount} to sync
+                </button>
+              )}
+              <span className={`save-pill ${saveStatus}`}>
+                {saveStatus === 'pending' ? 'local' : saveStatus}
+              </span>
+            </span>
           </footer>
         )}
       </main>

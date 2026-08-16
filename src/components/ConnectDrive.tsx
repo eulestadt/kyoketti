@@ -40,7 +40,8 @@ function GithubMark() {
 }
 
 export function ConnectDrive() {
-  const { connect, connectGithub, connectLocal, connecting, error, startDemo } = useApp()
+  const { connect, connectGithub, connectLocal, connecting, error, startDemo, offlineResume, resumeOffline } =
+    useApp()
   const { theme, toggleTheme } = useTheme()
   const localSupported = isLocalFolderSupported()
 
@@ -121,6 +122,20 @@ export function ConnectDrive() {
         <button className="connect-demo-link" onClick={startDemo}>
           Try a demo vault
         </button>
+
+        {offlineResume && (
+          <button
+            className="connect-offline-link"
+            onClick={() => void resumeOffline()}
+            disabled={connecting}
+          >
+            Continue offline
+            <span>
+              {offlineResume.folderName}
+              {offlineResume.email ? ` · ${offlineResume.email}` : ''}
+            </span>
+          </button>
+        )}
 
         <p className="connect-legal">
           Kyoketti is an independent project and is not affiliated with Obsidian.

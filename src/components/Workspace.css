@@ -273,7 +273,60 @@
 .save-pill.unsaved { color: var(--warning); }
 .save-pill.saving { color: var(--accent-2); }
 .save-pill.saved { color: var(--success); }
+.save-pill.pending { color: var(--warning); }
 .save-pill.error { color: var(--danger); }
+
+.status-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+.offline-pill {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warning);
+}
+
+.sync-pill {
+  border: none;
+  background: transparent;
+  color: var(--accent-2);
+  font: inherit;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0;
+}
+
+.sync-pill:hover {
+  color: var(--text);
+}
+
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.offline-banner button {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
 
 .modal-backdrop {
   position: fixed;

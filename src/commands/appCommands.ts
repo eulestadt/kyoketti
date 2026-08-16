@@ -64,6 +64,8 @@ export type CommandHost = {
   expandAllFolders: () => void
   collapseAllFolders: () => void
   refreshVault: () => Promise<void>
+  syncPending?: () => Promise<void>
+  pendingCount?: number
   clearVault: () => void
   setTheme: (theme: 'light' | 'dark') => void
   toggleTheme: () => void
@@ -137,6 +139,12 @@ export function buildAppCommands(host: CommandHost): CommandDef[] {
     { id: 'workspace:new-tab', name: 'New tab', run: () => { if (parentId) void host.createNote(parentId, 'Untitled') } },
     { id: 'editor:save-file', name: 'Save current file', hotkey: 'Mod+S', run: () => void host.saveActiveFile() },
     { id: 'app:reload', name: 'Reload vault', keywords: 'refresh', run: () => void host.refreshVault() },
+    {
+      id: 'app:sync-pending',
+      name: host.pendingCount ? `Sync pending changes (${host.pendingCount})` : 'Sync pending changes',
+      keywords: 'offline queue upload',
+      run: () => void host.syncPending?.(),
+    },
 
     { id: 'workspace:close', name: 'Close current tab', hotkey: 'Mod+W', run: () => { if (host.activeFileId) host.closeTab(host.activeFileId) } },
     { id: 'workspace:close-others', name: 'Close all other tabs', run: () => { if (host.activeFileId) host.closeOtherTabs(host.activeFileId) } },

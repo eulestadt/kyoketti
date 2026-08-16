@@ -195,6 +195,24 @@ export async function restoreLocalVault(): Promise<{ folderId: string; folderNam
   return { folderId: LOCAL_ROOT_ID, folderName: handle.name || 'Local Vault' }
 }
 
+/** Rebuild path ↔ id maps from a cached tree so local writes work after an offline restore. */
+export function hydrateLocalMapsFromTree(root: VaultNode) {
+  resetMaps(root.name)
+  function walk(node: VaultNode) {
+    if (node.id !== LOCAL_ROOT_ID) {
+      const rel = node.path || node.name
+      pathToId.set(rel, node.id)
+      idToPath.set(node.id, rel)
+    }
+    for (const child of node.children ?? []) walk(child)
+  }
+  walk(root)
+}
+
+export function ensureLocalPathId(relPath: string): string {
+  return ensureIdForPath(relPath)
+}
+
 export async function requestLocalVaultPermission(): Promise<boolean> {
   if (!rootHandle) {
     const handle = await idbGet(HANDLE_KEY)

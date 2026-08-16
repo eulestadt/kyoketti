@@ -183,6 +183,31 @@
   color: var(--text);
 }
 
+.connect-offline-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  width: 100%;
+  margin: 0 0 1.15rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.connect-offline-link span {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.connect-offline-link:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 .connect-legal {
   margin: 0;
   color: var(--text-faint);

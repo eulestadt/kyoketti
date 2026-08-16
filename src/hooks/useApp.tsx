@@ -40,6 +40,7 @@ import {
   githubRename,
   githubWrite,
   listGithubVaultTree,
+  pathId as githubPathId,
 } from '../lib/githubVault'
 import {
   demoCreateFolder,
@@ -55,6 +56,8 @@ import {
 } from '../lib/demoVault'
 import {
   clearLocalVault,
+  ensureLocalPathId,
+  hydrateLocalMapsFromTree,
   isLocalMode,
   localCreateFolder,
   localCreateNote,
@@ -64,6 +67,7 @@ import {
   localTrash,
   localWrite,
   pickLocalVaultFolder,
+  requestLocalVaultPermission,
   restoreLocalVault,
 } from '../lib/localVault'
 import {
@@ -85,11 +89,40 @@ import {
 import { defaultBaseContent, ensureBaseFileName, isBaseFileName } from '../lib/bases'
 import { defaultCanvasContent, ensureCanvasFileName, isCanvasFileName } from '../lib/canvas'
 import { childNames, findVaultNode, uniqueCopyName } from '../lib/vaultTree'
+import { insertVaultChild, remapVaultId, removeVaultNode, renameVaultNode } from '../lib/vaultMutate'
+import {
+  browserOffline,
+  OfflineError,
+  shouldQueueOffline,
+} from '../lib/offline'
+import {
+  clearOfflineData,
+  enqueueMutation,
+  getQueue,
+  loadSnapshot,
+  newPendingId,
+  peekOfflineResume,
+  remapMutationIds,
+  saveSnapshot,
+  setQueue,
+  type MutationOp,
+  type OfflineResumeInfo,
+} from '../lib/offlineCache'
+import {
+  buildSnapshot,
+  identityFromSession,
+  indexFromSnapshotFiles,
+  mimeForVaultName,
+  pathForNewChild,
+  seedContentCache,
+  sessionFromIdentity,
+} from '../lib/offlineApply'
 import type {
   AuthProvider,
   AuthSession,
   CreateFileOptions,
   CreatedFile,
+  DriveFile,
   LeftPanel,
   OpenTab,
   RightPanel,
@@ -127,13 +160,17 @@ type AppState = {
   viewMode: ViewMode
   leftPanel: LeftPanel
   rightPanel: RightPanel
-  saveStatus: 'saved' | 'saving' | 'unsaved' | 'error'
+  saveStatus: 'saved' | 'saving' | 'unsaved' | 'error' | 'pending'
   error: string | null
   statusMessage: string
   searchQuery: string
   localGraph: boolean
   revealRequest: { id: string; n: number } | null
   treeExpandRequest: { mode: 'expand' | 'collapse'; n: number } | null
+  offline: boolean
+  pendingCount: number
+  offlineResume: OfflineResumeInfo | null
+  localPermissionNeeded: boolean
 }
 
 type AppActions = {
@@ -173,6 +210,9 @@ type AppActions = {
   collapseAllFolders: () => void
   openNoteByTitle: (title: string, fromPath?: string) => Promise<boolean>
   setError: (error: string | null) => void
+  resumeOffline: () => Promise<void>
+  syncPending: () => Promise<void>
+  grantLocalAccess: () => Promise<void>
   authProvider: AuthProvider | null
 }
 
@@ -230,8 +270,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [localGraph, setLocalGraph] = useState(false)
   const [revealRequest, setRevealRequest] = useState<{ id: string; n: number } | null>(null)
   const [treeExpandRequest, setTreeExpandRequest] = useState<{ mode: 'expand' | 'collapse'; n: number } | null>(null)
+  const [offline, setOffline] = useState(() => browserOffline())
+  const [pendingCount, setPendingCount] = useState(0)
+  const [offlineResume, setOfflineResume] = useState<OfflineResumeInfo | null>(null)
+  const [localPermissionNeeded, setLocalPermissionNeeded] = useState(false)
   const contentCache = useRef(new Map<string, string>())
   const saveTimer = useRef<number | null>(null)
+  const persistTimer = useRef<number | null>(null)
   const editorContentRef = useRef(editorContent)
   const activeFileIdRef = useRef(activeFileId)
   const demoRef = useRef(demo)
@@ -240,9 +285,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const indexRef = useRef(index)
   const treeRef = useRef(tree)
   const vaultRef = useRef(vault)
+  const offlineRef = useRef(offline)
   const navRef = useRef<{ stack: string[]; index: number }>({ stack: [], index: -1 })
   const closedTabsRef = useRef<OpenTab[]>([])
   const tabsRef = useRef<OpenTab[]>([])
+  const syncingRef = useRef(false)
 
   useEffect(() => {
     editorContentRef.current = editorContent
@@ -271,6 +318,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
+  useEffect(() => {
+    offlineRef.current = offline
+  }, [offline])
 
   const setViewMode = useCallback((mode: ViewMode) => {
     setViewModeState(mode)
@@ -296,9 +346,102 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [index])
 
+  const currentKind = useCallback((): 'google' | 'github' | 'local' | 'demo' => {
+    if (demoRef.current) return 'demo'
+    if (localRef.current) return 'local'
+    return sessionRef.current?.provider === 'github' ? 'github' : 'google'
+  }, [])
+
+  const persistNow = useCallback(async () => {
+    const liveVault = vaultRef.current
+    const liveTree = treeRef.current
+    if (!liveVault || !liveTree) return
+    if (demoRef.current) return
+    try {
+      await saveSnapshot(
+        buildSnapshot({
+          identity: identityFromSession(currentKind(), sessionRef.current),
+          vault: liveVault,
+          tree: liveTree,
+          index: indexRef.current,
+        }),
+      )
+    } catch {
+      /* quota / private mode */
+    }
+  }, [currentKind])
+
+  const schedulePersist = useCallback(() => {
+    if (persistTimer.current) window.clearTimeout(persistTimer.current)
+    persistTimer.current = window.setTimeout(() => {
+      void persistNow()
+    }, 400)
+  }, [persistNow])
+
+  const applySnapshot = useCallback(
+    (snapshot: ReturnType<typeof buildSnapshot>) => {
+      setVaultState(snapshot.vault)
+      vaultRef.current = snapshot.vault
+      setTree(snapshot.tree)
+      treeRef.current = snapshot.tree
+      const nextIndex = indexFromSnapshotFiles(snapshot.files)
+      setIndex(nextIndex)
+      indexRef.current = nextIndex
+      seedContentCache(contentCache.current, snapshot.files)
+      if (snapshot.identity.kind === 'local') {
+        setLocal(true)
+        setDemo(false)
+        hydrateLocalMapsFromTree(snapshot.tree)
+      } else if (snapshot.identity.kind === 'demo') {
+        setDemo(true)
+        setLocal(false)
+      } else {
+        setDemo(false)
+        setLocal(false)
+      }
+      const nextSession = sessionFromIdentity(snapshot.identity)
+      setSession(nextSession)
+      sessionRef.current = nextSession
+      try {
+        localStorage.setItem(VAULT_KEY, JSON.stringify(snapshot.vault))
+      } catch {
+        /* ignore */
+      }
+    },
+    [],
+  )
+
+  const remapLocalId = useCallback((from: string, to: string) => {
+    if (from === to) return
+    const cache = contentCache.current.get(from)
+    if (cache != null) {
+      contentCache.current.set(to, cache)
+      contentCache.current.delete(from)
+    }
+    if (treeRef.current) {
+      const nextTree = remapVaultId(treeRef.current, from, to)
+      treeRef.current = nextTree
+      setTree(nextTree)
+    }
+    const existing = indexRef.current.notesById.get(from)
+    if (existing) {
+      const nextIndex = upsertNote(removeNote(indexRef.current, from), { ...existing, id: to })
+      indexRef.current = nextIndex
+      setIndex(nextIndex)
+    }
+    if (activeFileIdRef.current === from) {
+      activeFileIdRef.current = to
+      setActiveFileId(to)
+    }
+    setTabs((prev) => prev.map((tab) => (tab.id === from ? { ...tab, id: to } : tab)))
+  }, [])
+
   const ensureDriveToken = useCallback(async (): Promise<string> => {
     if (demoRef.current) return 'demo'
     if (localRef.current) return 'local'
+    if (browserOffline()) {
+      throw new OfflineError()
+    }
     const current = sessionRef.current
     if (current?.accessToken && current.expiresAt > Date.now() + 60_000) {
       return current.accessToken
@@ -328,6 +471,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     setSession(next)
     sessionRef.current = next
+    setOffline(false)
     return next.accessToken
   }, [])
 
@@ -343,6 +487,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         window.history.replaceState({}, '', next)
       }
 
+      const queued = await getQueue()
+      const resume = await peekOfflineResume()
+      if (!cancelled) {
+        setPendingCount(queued.length)
+        setOfflineResume(resume)
+        if (browserOffline()) setOffline(true)
+      }
+
       if (isDemoMode()) {
         setBootstrapping(false)
         return
@@ -353,6 +505,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const restored = await restoreLocalVault()
           if (cancelled) return
           if (!restored) {
+            const snapshot = await loadSnapshot()
+            if (snapshot?.identity.kind === 'local') {
+              applySnapshot(snapshot)
+              setOffline(true)
+              setLocalPermissionNeeded(true)
+              setStatusMessage(`Offline — ${snapshot.vault.folderName}`)
+              setBootstrapping(false)
+              return
+            }
             setLocal(false)
             setSession(null)
             setVaultState(null)
@@ -373,10 +534,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setStatusMessage(`Local vault: ${restored.folderName}`)
         } catch (err) {
           if (!cancelled) {
-            setError(err instanceof Error ? err.message : 'Failed to restore local vault')
-            setLocal(false)
-            setSession(null)
-            setVaultState(null)
+            const snapshot = await loadSnapshot()
+            if (snapshot?.identity.kind === 'local') {
+              applySnapshot(snapshot)
+              setOffline(true)
+              setLocalPermissionNeeded(true)
+              setStatusMessage(`Offline — ${snapshot.vault.folderName}`)
+            } else {
+              setError(err instanceof Error ? err.message : 'Failed to restore local vault')
+              setLocal(false)
+              setSession(null)
+              setVaultState(null)
+            }
           }
         } finally {
           if (!cancelled) setBootstrapping(false)
@@ -388,6 +557,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const me = await fetchMe()
         if (cancelled) return
         if (!me.user) {
+          if (browserOffline() && resume) {
+            const snapshot = await loadSnapshot()
+            if (snapshot) {
+              applySnapshot(snapshot)
+              setOffline(true)
+              setStatusMessage(`Offline — ${snapshot.vault.folderName}`)
+              setBootstrapping(false)
+              return
+            }
+          }
           clearSession()
           setSession(null)
           setVaultState(null)
@@ -422,6 +601,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           provider,
           githubScopes,
         })
+        setOffline(false)
         if (me.vault) {
           localStorage.setItem(VAULT_KEY, JSON.stringify(me.vault))
           setVaultState({ folderId: me.vault.folderId, folderName: me.vault.folderName })
@@ -432,7 +612,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setStatusMessage(`Signed in as ${me.user.email ?? me.user.name ?? 'user'}`)
         }
       } catch (err) {
-        if (!cancelled) {
+        if (cancelled) return
+        const snapshot = await loadSnapshot()
+        if (snapshot && (shouldQueueOffline(err) || browserOffline())) {
+          applySnapshot(snapshot)
+          setOffline(true)
+          setStatusMessage(`Offline — ${snapshot.vault.folderName}`)
+        } else if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to restore session')
         }
       } finally {
@@ -443,7 +629,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applySnapshot])
 
   const connect = useCallback(async () => {
     setConnecting(true)
@@ -525,6 +711,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       disableDemoMode()
       await clearLocalVault()
+      await clearOfflineData()
       clearSession()
       localStorage.removeItem(VAULT_KEY)
       setDemo(false)
@@ -536,6 +723,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTabs([])
       setActiveFileId(null)
       setEditorContentState('')
+      setOfflineResume(null)
+      setPendingCount(0)
+      setLocalPermissionNeeded(false)
       setStatusMessage('Signed out')
     })()
   }, [demo, local])
@@ -547,6 +737,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setError(null)
     setStatusMessage('Indexing vault…')
     try {
+      if (!demo && browserOffline()) {
+        const snapshot = await loadSnapshot()
+        if (snapshot) {
+          applySnapshot(snapshot)
+          setOffline(true)
+          setStatusMessage('Offline — showing last synced vault')
+          return
+        }
+      }
       const accessToken = demo || local ? (demo ? 'demo' : 'local') : await ensureDriveToken()
       const github = !demo && !local && session?.provider === 'github'
       const { root, files } = demo
@@ -557,6 +756,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? await listGithubVaultTree(accessToken, vault.folderId, vault.folderName)
             : await listVaultTree(accessToken, vault.folderId, vault.folderName)
       setTree(root)
+      treeRef.current = root
       const paths = buildPaths(files, vault.folderId)
       const textFiles = vaultTextFiles(files)
       let nextIndex = createEmptyIndex()
@@ -584,6 +784,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       setIndex(nextIndex)
+      indexRef.current = nextIndex
+      if (local) setLocalPermissionNeeded(false)
       const noteCount = textFiles.filter(
         (f) => !/\.base$/i.test(f.name) && !/\.canvas$/i.test(f.name),
       ).length
@@ -593,18 +795,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (baseCount) parts.push(`${baseCount} bases`)
       if (canvasCount) parts.push(`${canvasCount} canvases`)
       setStatusMessage(`${parts.join(' · ')} indexed`)
+      setOffline(false)
+      await persistNow()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load vault'
+      const permissionNeeded =
+        local && /permission/i.test(message)
+      if (permissionNeeded) setLocalPermissionNeeded(true)
+      if (shouldQueueOffline(err) || permissionNeeded) {
+        const snapshot = await loadSnapshot()
+        if (snapshot) {
+          applySnapshot(snapshot)
+          setOffline(true)
+          setError(null)
+          setStatusMessage(
+            permissionNeeded
+              ? 'Folder access needed — showing last snapshot'
+              : 'Offline — showing last synced vault',
+          )
+          return
+        }
+        if (treeRef.current) {
+          setOffline(true)
+          setError(null)
+          setStatusMessage('Offline — using cached vault')
+          return
+        }
+      }
       setError(message)
       setStatusMessage('Vault load failed')
-      if (!demo && !local && message.toLowerCase().includes('unauthorized')) {
-        clearSession()
-        setSession(null)
-      }
     } finally {
       setLoadingVault(false)
     }
-  }, [session, vault, demo, local, ensureDriveToken])
+  }, [session, vault, demo, local, ensureDriveToken, persistNow, applySnapshot])
 
   const setVault = useCallback(async (next: VaultConfig) => {
     localStorage.setItem(VAULT_KEY, JSON.stringify(next))
@@ -636,6 +859,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setActiveFileId(null)
         setEditorContentState('')
         contentCache.current.clear()
+        await clearOfflineData()
+        setOfflineResume(null)
+        setPendingCount(0)
+        setLocalPermissionNeeded(false)
         setStatusMessage('Choose a local folder again')
         return
       }
@@ -649,6 +876,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       contentCache.current.clear()
       if (!demoRef.current) {
         void clearVaultServer().catch(() => undefined)
+        void clearOfflineData()
+        setOfflineResume(null)
+        setPendingCount(0)
       }
     })()
   }, [])
@@ -727,7 +957,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           navRef.current = { stack: next.slice(-80), index: next.length - 1 }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to open file')
+        if (shouldQueueOffline(err)) {
+          setError('This file is not available offline')
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to open file')
+        }
       }
     },
     [session, demo, local, vault, ensureDriveToken],
@@ -830,6 +1064,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTreeExpandRequest((prev) => ({ mode: 'collapse', n: (prev?.n ?? 0) + 1 }))
   }, [])
 
+  const queueOp = useCallback(async (op: MutationOp) => {
+    const next = await enqueueMutation(op)
+    setPendingCount(next.length)
+    setOffline(true)
+    schedulePersist()
+    return next.length
+  }, [schedulePersist])
+
+  const applyLocalTextFile = useCallback(
+    (id: string, parentId: string, fileName: string, content: string): CreatedFile => {
+      const vaultId = vaultRef.current?.folderId ?? parentId
+      const path = pathForNewChild(treeRef.current, vaultId, parentId, fileName)
+      const mimeType = mimeForVaultName(fileName)
+      if (treeRef.current) {
+        const node: VaultNode = {
+          id,
+          name: fileName,
+          path,
+          mimeType,
+          isFolder: false,
+          parentId,
+        }
+        const nextTree = insertVaultChild(treeRef.current, parentId, node)
+        treeRef.current = nextTree
+        setTree(nextTree)
+      }
+      contentCache.current.set(id, content)
+      const note = noteFromFile(
+        { id, name: fileName, mimeType, modifiedTime: new Date().toISOString() },
+        path,
+        content,
+      )
+      const nextIndex = upsertNote(indexRef.current, note)
+      indexRef.current = nextIndex
+      setIndex(nextIndex)
+      if (localRef.current) ensureLocalPathId(path)
+      return { id, name: fileName, path }
+    },
+    [],
+  )
+
+  const rememberSaved = useCallback((fileId: string, content: string) => {
+    contentCache.current.set(fileId, content)
+    const existing = indexRef.current.notesById.get(fileId)
+    const note = noteFromFile(
+      {
+        id: fileId,
+        name: existing?.name ?? 'Untitled.md',
+        mimeType: mimeForVaultName(existing?.name ?? 'Untitled.md'),
+        modifiedTime: new Date().toISOString(),
+      },
+      existing?.path ?? 'Untitled.md',
+      content,
+    )
+    const nextIndex = upsertNote(indexRef.current, note)
+    indexRef.current = nextIndex
+    setIndex(nextIndex)
+    setTabs((prev) => prev.map((t) => (t.id === fileId ? { ...t, dirty: false } : t)))
+    return note
+  }, [])
+
   const saveActiveFile = useCallback(async () => {
     const fileId = activeFileIdRef.current
     const content = editorContentRef.current
@@ -849,27 +1144,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await updateTextFile(accessToken, fileId, content)
         }
       }
-      contentCache.current.set(fileId, content)
-      const existing = index.notesById.get(fileId)
-      const note = noteFromFile(
-        {
-          id: fileId,
-          name: existing?.name ?? 'Untitled.md',
-          mimeType: 'text/markdown',
-          modifiedTime: new Date().toISOString(),
-        },
-        existing?.path ?? 'Untitled.md',
-        content,
-      )
-      setIndex((prev) => upsertNote(prev, note))
-      setTabs((prev) => prev.map((t) => (t.id === fileId ? { ...t, dirty: false } : t)))
+      const note = rememberSaved(fileId, content)
       setSaveStatus('saved')
       setStatusMessage(`Saved ${note.path}`)
+      schedulePersist()
     } catch (err) {
-      setSaveStatus('error')
-      setError(err instanceof Error ? err.message : 'Save failed')
+      if (shouldQueueOffline(err)) {
+        const note = rememberSaved(fileId, content)
+        await queueOp({ type: 'write', fileId, content })
+        setSaveStatus('pending')
+        setError(null)
+        setStatusMessage(`Saved on this device — ${note.path}`)
+      } else {
+        setSaveStatus('error')
+        setError(err instanceof Error ? err.message : 'Save failed')
+      }
     }
-  }, [index.notesById, ensureDriveToken])
+  }, [ensureDriveToken, queueOp, rememberSaved, schedulePersist])
 
   const setEditorContent = useCallback(
     (content: string) => {
@@ -886,131 +1177,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [saveActiveFile],
   )
 
-  const createNote = useCallback(
-    async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
-      const fileName = ensureMarkdownFileName(name)
-      const content = options?.content ?? seedNoteContent(fileName)
-      const github = !demo && !local && sessionRef.current?.provider === 'github'
-      const file = demo
-        ? demoCreateNote(parentId, fileName, content)
-        : local
-          ? await localCreateNote(parentId, fileName, content)
-          : github
-            ? await githubCreateNote(
-                await ensureDriveToken(),
-                vaultRef.current!.folderId,
-                parentId,
-                fileName,
-                content,
-              )
-            : await createMarkdownFile(await ensureDriveToken(), parentId, fileName, content)
+  const createVaultTextFile = useCallback(
+    async (
+      parentId: string,
+      fileName: string,
+      content: string,
+      kind: 'note' | 'base' | 'canvas',
+      options?: CreateFileOptions,
+    ): Promise<CreatedFile> => {
+      const github = !demoRef.current && !localRef.current && sessionRef.current?.provider === 'github'
+      const mimeType =
+        kind === 'base'
+          ? 'application/x-obsidian-base'
+          : kind === 'canvas'
+            ? 'application/x-obsidian-canvas'
+            : 'text/markdown'
+      let file: DriveFile
+      try {
+        file = demoRef.current
+          ? demoCreateNote(parentId, fileName, content)
+          : localRef.current
+            ? await localCreateNote(parentId, fileName, content)
+            : github
+              ? await githubCreateNote(
+                  await ensureDriveToken(),
+                  vaultRef.current!.folderId,
+                  parentId,
+                  fileName,
+                  content,
+                )
+              : kind === 'note'
+                ? await createMarkdownFile(await ensureDriveToken(), parentId, fileName, content)
+                : await createTextFile(await ensureDriveToken(), parentId, fileName, content, mimeType)
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        const vaultId = vaultRef.current?.folderId ?? parentId
+        const path = pathForNewChild(treeRef.current, vaultId, parentId, fileName)
+        const id = github
+          ? githubPathId(vaultId, path)
+          : localRef.current
+            ? ensureLocalPathId(path)
+            : newPendingId()
+        await queueOp({ type: 'create', tempId: id, parentId, name: fileName, content, kind })
+        const created = applyLocalTextFile(id, parentId, fileName, content)
+        if (options?.open !== false) await openFile(created.id, { name: created.name, path: created.path })
+        return created
+      }
       const resolvedName = file.name || fileName
       const pathHint =
         github && file.id.includes(':')
           ? file.id.slice(file.id.indexOf(':') + 1)
-          : resolvedName
+          : pathForNewChild(treeRef.current, vaultRef.current?.folderId ?? parentId, parentId, resolvedName)
       contentCache.current.set(file.id, content)
-      setIndex((prev) =>
-        upsertNote(
-          prev,
-          noteFromFile(
-            { ...file, name: resolvedName },
-            pathHint,
-            content,
-          ),
-        ),
+      const nextIndex = upsertNote(
+        indexRef.current,
+        noteFromFile({ ...file, name: resolvedName }, pathHint, content),
       )
+      indexRef.current = nextIndex
+      setIndex(nextIndex)
+      schedulePersist()
       if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
-      void refreshVault()
+      if (!offlineRef.current) void refreshVault()
       return { id: file.id, name: resolvedName, path: pathHint }
     },
-    [demo, local, refreshVault, openFile, ensureDriveToken],
+    [applyLocalTextFile, ensureDriveToken, openFile, queueOp, refreshVault, schedulePersist],
+  )
+
+  const createNote = useCallback(
+    async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
+      const fileName = ensureMarkdownFileName(name)
+      const content = options?.content ?? seedNoteContent(fileName)
+      return createVaultTextFile(parentId, fileName, content, 'note', options)
+    },
+    [createVaultTextFile],
   )
 
   const createBase = useCallback(
     async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
       const fileName = ensureBaseFileName(name)
       const content = options?.content ?? defaultBaseContent()
-      const github = !demo && !local && sessionRef.current?.provider === 'github'
-      const file = demo
-        ? demoCreateNote(parentId, fileName, content)
-        : local
-          ? await localCreateNote(parentId, fileName, content)
-          : github
-            ? await githubCreateNote(
-                await ensureDriveToken(),
-                vaultRef.current!.folderId,
-                parentId,
-                fileName,
-                content,
-              )
-            : await createTextFile(
-                await ensureDriveToken(),
-                parentId,
-                fileName,
-                content,
-                'application/x-obsidian-base',
-              )
-      const resolvedName = file.name || fileName
-      const pathHint =
-        github && file.id.includes(':')
-          ? file.id.slice(file.id.indexOf(':') + 1)
-          : resolvedName
-      contentCache.current.set(file.id, content)
-      setIndex((prev) =>
-        upsertNote(
-          prev,
-          noteFromFile({ ...file, name: resolvedName }, pathHint, content),
-        ),
-      )
-      if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
-      void refreshVault()
-      return { id: file.id, name: resolvedName, path: pathHint }
+      return createVaultTextFile(parentId, fileName, content, 'base', options)
     },
-    [demo, local, refreshVault, openFile, ensureDriveToken],
+    [createVaultTextFile],
   )
 
   const createCanvas = useCallback(
     async (parentId: string, name: string, options?: CreateFileOptions): Promise<CreatedFile> => {
       const fileName = ensureCanvasFileName(name)
       const content = options?.content ?? defaultCanvasContent()
-      const github = !demo && !local && sessionRef.current?.provider === 'github'
-      const file = demo
-        ? demoCreateNote(parentId, fileName, content)
-        : local
-          ? await localCreateNote(parentId, fileName, content)
-          : github
-            ? await githubCreateNote(
-                await ensureDriveToken(),
-                vaultRef.current!.folderId,
-                parentId,
-                fileName,
-                content,
-              )
-            : await createTextFile(
-                await ensureDriveToken(),
-                parentId,
-                fileName,
-                content,
-                'application/x-obsidian-canvas',
-              )
-      const resolvedName = file.name || fileName
-      const pathHint =
-        github && file.id.includes(':')
-          ? file.id.slice(file.id.indexOf(':') + 1)
-          : resolvedName
-      contentCache.current.set(file.id, content)
-      setIndex((prev) =>
-        upsertNote(
-          prev,
-          noteFromFile({ ...file, name: resolvedName }, pathHint, content),
-        ),
-      )
-      if (options?.open !== false) await openFile(file.id, { name: resolvedName, path: pathHint })
-      void refreshVault()
-      return { id: file.id, name: resolvedName, path: pathHint }
+      return createVaultTextFile(parentId, fileName, content, 'canvas', options)
     },
-    [demo, local, refreshVault, openFile, ensureDriveToken],
+    [createVaultTextFile],
   )
 
   const duplicateFile = useCallback(
@@ -1046,17 +1303,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (fileId: string, content: string) => {
       if (!demoRef.current && !localRef.current && !sessionRef.current) return
       contentCache.current.set(fileId, content)
-      if (demoRef.current) demoWrite(fileId, content)
-      else if (localRef.current) await localWrite(fileId, content)
-      else {
-        const accessToken = await ensureDriveToken()
-        if (sessionRef.current?.provider === 'github') {
-          const repoId = vaultRef.current?.folderId
-          if (!repoId) throw new Error('No GitHub vault selected')
-          await githubWrite(accessToken, repoId, fileId, content)
-        } else {
-          await updateTextFile(accessToken, fileId, content)
+      try {
+        if (demoRef.current) demoWrite(fileId, content)
+        else if (localRef.current) await localWrite(fileId, content)
+        else {
+          const accessToken = await ensureDriveToken()
+          if (sessionRef.current?.provider === 'github') {
+            const repoId = vaultRef.current?.folderId
+            if (!repoId) throw new Error('No GitHub vault selected')
+            await githubWrite(accessToken, repoId, fileId, content)
+          } else {
+            await updateTextFile(accessToken, fileId, content)
+          }
         }
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        await queueOp({ type: 'write', fileId, content })
       }
       const existing = indexRef.current.notesById.get(fileId)
       if (existing) {
@@ -1064,37 +1326,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
           {
             id: fileId,
             name: existing.name,
-            mimeType: /\.base$/i.test(existing.name)
-              ? 'application/x-obsidian-base'
-              : /\.canvas$/i.test(existing.name)
-                ? 'application/x-obsidian-canvas'
-                : 'text/markdown',
+            mimeType: mimeForVaultName(existing.name),
             modifiedTime: new Date().toISOString(),
           },
           existing.path,
           content,
         )
-        setIndex((prev) => upsertNote(prev, note))
+        const nextIndex = upsertNote(indexRef.current, note)
+        indexRef.current = nextIndex
+        setIndex(nextIndex)
       }
       if (activeFileIdRef.current === fileId) {
         setEditorContentState(content)
         setTabs((prev) => prev.map((t) => (t.id === fileId ? { ...t, dirty: false } : t)))
-        setSaveStatus('saved')
+        setSaveStatus(offlineRef.current ? 'pending' : 'saved')
       }
+      schedulePersist()
     },
-    [ensureDriveToken],
+    [ensureDriveToken, queueOp, schedulePersist],
   )
 
   const createDirectory = useCallback(
     async (parentId: string, name: string) => {
-      if (demo) demoCreateFolder(parentId, name)
-      else if (local) await localCreateFolder(parentId, name)
-      else if (sessionRef.current?.provider === 'github') {
-        await githubCreateFolder(await ensureDriveToken(), vaultRef.current!.folderId, parentId, name)
-      } else await createFolder(await ensureDriveToken(), parentId, name)
-      await refreshVault()
+      const github = !demoRef.current && !localRef.current && sessionRef.current?.provider === 'github'
+      const vaultId = vaultRef.current?.folderId ?? parentId
+      const path = pathForNewChild(treeRef.current, vaultId, parentId, name)
+      try {
+        if (demoRef.current) demoCreateFolder(parentId, name)
+        else if (localRef.current) await localCreateFolder(parentId, name)
+        else if (github) {
+          await githubCreateFolder(await ensureDriveToken(), vaultId, parentId, name)
+        } else await createFolder(await ensureDriveToken(), parentId, name)
+        if (!offlineRef.current) await refreshVault()
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        const id = github
+          ? githubPathId(vaultId, path)
+          : localRef.current
+            ? ensureLocalPathId(path)
+            : newPendingId()
+        await queueOp({ type: 'mkdir', tempId: id, parentId, name })
+        if (treeRef.current) {
+          const node: VaultNode = {
+            id,
+            name,
+            path,
+            mimeType: 'application/vnd.google-apps.folder',
+            isFolder: true,
+            parentId,
+            children: [],
+          }
+          const nextTree = insertVaultChild(treeRef.current, parentId, node)
+          treeRef.current = nextTree
+          setTree(nextTree)
+        }
+        setStatusMessage(`Folder created on this device — ${name}`)
+      }
     },
-    [demo, local, refreshVault, ensureDriveToken],
+    [ensureDriveToken, queueOp, refreshVault],
   )
 
   const openNoteByTitle = useCallback(
@@ -1124,11 +1413,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name,
       }
 
-      if (demo) demoRename(id, name)
-      else if (local) await localRename(id, name)
-      else if (sessionRef.current?.provider === 'github') {
-        await githubRename(await ensureDriveToken(), vaultRef.current!.folderId, id, name)
-      } else await renameFile(await ensureDriveToken(), id, name)
+      try {
+        if (demoRef.current) demoRename(id, name)
+        else if (localRef.current) await localRename(id, name)
+        else if (sessionRef.current?.provider === 'github') {
+          await githubRename(await ensureDriveToken(), vaultRef.current!.folderId, id, name)
+        } else await renameFile(await ensureDriveToken(), id, name)
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        await queueOp({ type: 'rename', fileId: id, name })
+      }
 
       // Obsidian-style: rewrite wikilinks across the vault that pointed at the old name
       if (oldRef && (oldRef.title !== newRef.title || oldRef.path !== newRef.path)) {
@@ -1144,17 +1438,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      if (treeRef.current) {
+        const nextTree = renameVaultNode(treeRef.current, id, name)
+        treeRef.current = nextTree
+        setTree(nextTree)
+      }
+
+      let liveId = id
+      if (sessionRef.current?.provider === 'github' && vaultRef.current) {
+        const nextId = githubPathId(vaultRef.current.folderId, nextPath)
+        if (nextId !== id) {
+          remapLocalId(id, nextId)
+          liveId = nextId
+        }
+      }
+
       setTabs((prev) =>
         prev.map((t) => {
-          if (t.id !== id) return t
-          return { ...t, name, path: nextPath }
+          if (t.id !== liveId && t.id !== id) return t
+          return { ...t, id: liveId, name, path: nextPath }
         }),
       )
       setIndex((prev) => {
-        const current = prev.notesById.get(id)
+        const current = prev.notesById.get(liveId) ?? prev.notesById.get(id)
         if (!current) return prev
-        return upsertNote(prev, {
+        return upsertNote(removeNote(prev, id), {
           ...current,
+          id: liveId,
           name,
           title: newRef.title,
           path: nextPath,
@@ -1164,32 +1474,187 @@ export function AppProvider({ children }: { children: ReactNode }) {
               : current.content,
         })
       })
-      if (activeFileIdRef.current === id && oldRef) {
+      if ((activeFileIdRef.current === id || activeFileIdRef.current === liveId) && oldRef) {
         setEditorContentState((prev) => rewriteLinksForRename(prev, oldRef, newRef))
       }
-      await refreshVault()
+      schedulePersist()
+      if (!offlineRef.current) await refreshVault()
     },
-    [demo, local, refreshVault, ensureDriveToken, writeFileContent],
+    [refreshVault, ensureDriveToken, writeFileContent, queueOp, remapLocalId, schedulePersist],
   )
 
   const deleteNode = useCallback(
     async (id: string) => {
-      if (demo) demoTrash(id)
-      else if (local) await localTrash(id)
-      else if (sessionRef.current?.provider === 'github') {
-        await githubDelete(await ensureDriveToken(), vaultRef.current!.folderId, id)
-      } else await trashFile(await ensureDriveToken(), id)
+      try {
+        if (demoRef.current) demoTrash(id)
+        else if (localRef.current) await localTrash(id)
+        else if (sessionRef.current?.provider === 'github') {
+          await githubDelete(await ensureDriveToken(), vaultRef.current!.folderId, id)
+        } else await trashFile(await ensureDriveToken(), id)
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        await queueOp({ type: 'delete', fileId: id })
+      }
       contentCache.current.delete(id)
-      setIndex((prev) => removeNote(prev, id))
+      if (treeRef.current) {
+        const nextTree = removeVaultNode(treeRef.current, id)
+        treeRef.current = nextTree
+        setTree(nextTree)
+      }
+      const nextIndex = removeNote(indexRef.current, id)
+      indexRef.current = nextIndex
+      setIndex(nextIndex)
       setTabs((prev) => prev.filter((t) => t.id !== id))
-      if (activeFileId === id) {
+      if (activeFileIdRef.current === id) {
         setActiveFileId(null)
         setEditorContentState('')
       }
-      await refreshVault()
+      schedulePersist()
+      if (!offlineRef.current) await refreshVault()
     },
-    [demo, local, activeFileId, refreshVault, ensureDriveToken],
+    [refreshVault, ensureDriveToken, queueOp, schedulePersist],
   )
+
+  const flushQueue = useCallback(async () => {
+    if (syncingRef.current || demoRef.current) return
+    if (browserOffline()) return
+    const queue = await getQueue()
+    if (!queue.length) {
+      setPendingCount(0)
+      return
+    }
+    syncingRef.current = true
+    setStatusMessage('Syncing local changes…')
+    try {
+      const accessToken = localRef.current ? 'local' : await ensureDriveToken()
+      const github = !localRef.current && sessionRef.current?.provider === 'github'
+      const vaultId = vaultRef.current?.folderId ?? ''
+      let remaining = [...queue]
+      while (remaining.length) {
+        const item = remaining[0]!
+        const op = item.op
+        let remapFrom: string | null = null
+        let remapTo: string | null = null
+        if (op.type === 'write') {
+          if (localRef.current) await localWrite(op.fileId, op.content)
+          else if (github) await githubWrite(accessToken, vaultId, op.fileId, op.content)
+          else await updateTextFile(accessToken, op.fileId, op.content)
+        } else if (op.type === 'create') {
+          const mimeType =
+            op.kind === 'base'
+              ? 'application/x-obsidian-base'
+              : op.kind === 'canvas'
+                ? 'application/x-obsidian-canvas'
+                : 'text/markdown'
+          const file = localRef.current
+            ? await localCreateNote(op.parentId, op.name, op.content)
+            : github
+              ? await githubCreateNote(accessToken, vaultId, op.parentId, op.name, op.content)
+              : op.kind === 'note'
+                ? await createMarkdownFile(accessToken, op.parentId, op.name, op.content)
+                : await createTextFile(accessToken, op.parentId, op.name, op.content, mimeType)
+          if (file.id !== op.tempId) {
+            remapLocalId(op.tempId, file.id)
+            remapFrom = op.tempId
+            remapTo = file.id
+          }
+        } else if (op.type === 'mkdir') {
+          const file = localRef.current
+            ? await localCreateFolder(op.parentId, op.name)
+            : github
+              ? await githubCreateFolder(accessToken, vaultId, op.parentId, op.name)
+              : await createFolder(accessToken, op.parentId, op.name)
+          if (file.id !== op.tempId) {
+            remapLocalId(op.tempId, file.id)
+            remapFrom = op.tempId
+            remapTo = file.id
+          }
+        } else if (op.type === 'rename') {
+          if (localRef.current) await localRename(op.fileId, op.name)
+          else if (github) await githubRename(accessToken, vaultId, op.fileId, op.name)
+          else await renameFile(accessToken, op.fileId, op.name)
+        } else if (op.type === 'delete') {
+          if (localRef.current) await localTrash(op.fileId)
+          else if (github) await githubDelete(accessToken, vaultId, op.fileId)
+          else await trashFile(accessToken, op.fileId)
+        }
+        remaining = remaining.slice(1)
+        if (remapFrom && remapTo) remaining = remapMutationIds(remaining, remapFrom, remapTo)
+        await setQueue(remaining)
+        setPendingCount(remaining.length)
+      }
+      setOffline(false)
+      setSaveStatus('saved')
+      setStatusMessage('Synced')
+      await persistNow()
+    } catch (err) {
+      if (shouldQueueOffline(err)) {
+        setOffline(true)
+        setStatusMessage('Still offline — changes kept on this device')
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to sync local changes')
+      }
+    } finally {
+      syncingRef.current = false
+    }
+  }, [ensureDriveToken, persistNow, remapLocalId])
+
+  const syncPending = useCallback(async () => {
+    await flushQueue()
+    if (!offlineRef.current) await refreshVault()
+  }, [flushQueue, refreshVault])
+
+  const resumeOffline = useCallback(async () => {
+    const snapshot = await loadSnapshot()
+    if (!snapshot) {
+      setError('No offline vault is stored on this device')
+      return
+    }
+    applySnapshot(snapshot)
+    setOffline(true)
+    setPendingCount((await getQueue()).length)
+    setStatusMessage(`Offline — ${snapshot.vault.folderName}`)
+  }, [applySnapshot])
+
+  const grantLocalAccess = useCallback(async () => {
+    const granted = await requestLocalVaultPermission()
+    if (!granted) {
+      setError('Folder access was not granted')
+      setLocalPermissionNeeded(true)
+      return
+    }
+    setLocalPermissionNeeded(false)
+    setError(null)
+    await flushQueue()
+    await refreshVault()
+  }, [flushQueue, refreshVault])
+
+  useEffect(() => {
+    function onOnline() {
+      setOffline(false)
+      void (async () => {
+        await flushQueue()
+        if (vaultRef.current) await refreshVault()
+      })()
+    }
+    function onOffline() {
+      setOffline(true)
+      setStatusMessage('Offline — edits saved on this device')
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void flushQueue()
+      }
+    }
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [flushQueue, refreshVault])
 
   const value = useMemo(
     () => ({
@@ -1215,6 +1680,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localGraph,
       revealRequest,
       treeExpandRequest,
+      offline,
+      pendingCount,
+      offlineResume,
+      localPermissionNeeded,
       connect,
       connectGithub,
       connectLocal,
@@ -1251,6 +1720,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       collapseAllFolders,
       openNoteByTitle,
       setError,
+      resumeOffline,
+      syncPending,
+      grantLocalAccess,
       authProvider: demo || local ? null : session?.provider ?? null,
     }),
     [
@@ -1276,6 +1748,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localGraph,
       revealRequest,
       treeExpandRequest,
+      offline,
+      pendingCount,
+      offlineResume,
+      localPermissionNeeded,
       connect,
       connectGithub,
       connectLocal,
@@ -1311,6 +1787,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       expandAllFolders,
       collapseAllFolders,
       openNoteByTitle,
+      resumeOffline,
+      syncPending,
+      grantLocalAccess,
     ],
   )
 

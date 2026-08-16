@@ -178,6 +178,13 @@ function rebuildTitleMap(notesById: Map<string, NoteMeta>): Map<string, NoteMeta
   return notesByTitle
 }
 
+export function indexFromNotes(notes: NoteMeta[]): VaultIndex {
+  const notesById = new Map<string, NoteMeta>()
+  for (const note of notes) notesById.set(note.id, note)
+  const notesByTitle = rebuildTitleMap(notesById)
+  return rebuildRelations({ notesById, notesByTitle, backlinks: new Map(), tags: new Map() })
+}
+
 export function upsertNote(index: VaultIndex, note: NoteMeta): VaultIndex {
   const notesById = new Map(index.notesById)
   notesById.set(note.id, note)

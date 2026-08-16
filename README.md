@@ -11,6 +11,7 @@ A web markdown vault with Google Drive, GitHub, local folder, and demo backends.
 - `[[wiki links]]`, tags, backlinks, outline, and graph view
 - Quick switcher (`Ctrl/Cmd+O`), command palette (`Ctrl/Cmd+P`), and vault search
 - Autosave (Drive writes or GitHub commits)
+- Works offline in the browser (app shell + last-synced vault, with sync when you are back online)
 
 ## Setup
 
@@ -27,7 +28,7 @@ npm install
 npm run dev
 ```
 
-You can also use **Try a demo vault** without cloud credentials.
+You can also use **Try a demo vault** without cloud credentials. After the first successful load, reload while offline to keep working from the cached app and vault.
 
 ## Scripts
 

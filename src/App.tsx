@@ -11,7 +11,7 @@ function Root() {
   if (bootstrapping) {
     return (
       <div className="boot-screen">
-        <p>Restoring your session…</p>
+        <p>Loading Kyoketti…</p>
       </div>
     )
   }

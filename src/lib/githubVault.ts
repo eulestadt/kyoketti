@@ -47,11 +47,11 @@ function parseRepoId(folderId: string): { owner: string; repo: string } {
   return { owner, repo }
 }
 
-function pathId(repoId: string, path: string): string {
+export function pathId(repoId: string, path: string): string {
   return path ? `${repoId}:${path}` : repoId
 }
 
-function parsePathId(fileId: string, repoId: string): string {
+export function parsePathId(fileId: string, repoId: string): string {
   if (fileId === repoId) return ''
   const prefix = `${repoId}:`
   if (fileId.startsWith(prefix)) return fileId.slice(prefix.length)
