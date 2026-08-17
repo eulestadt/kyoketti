@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../hooks/useApp'
 import { htmlToMarkdown, renderMarkdownToHtml, withPreservedFrontmatter } from '../../lib/markdown'
+import { handleAltArrowWordNav } from '../../lib/wordNavigation'
 import { resolveNoteRef } from '../../lib/vaultIndex'
 import { subscribeEditor, type EditorCommand, type EditorFormat } from '../../lib/editorBridge'
 import { ContextMenu, useContextMenu } from '../ui/ContextMenu'
@@ -449,6 +450,10 @@ export function WysiwygEditor() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (handleAltArrowWordNav(e)) {
+      e.stopPropagation()
+      return
+    }
     const mod = e.metaKey || e.ctrlKey
     const key = e.key
     const selection = window.getSelection()

@@ -171,8 +171,8 @@ export function buildAppCommands(host: CommandHost): CommandDef[] {
         if (t) void host.openFile(t.id)
       },
     })),
-    { id: 'app:go-back', name: 'Navigate back', hotkey: 'Alt+ArrowLeft', run: host.goBack },
-    { id: 'app:go-forward', name: 'Navigate forward', hotkey: 'Alt+ArrowRight', run: host.goForward },
+    { id: 'app:go-back', name: 'Navigate back', hotkey: 'Mod+Alt+ArrowLeft', run: host.goBack },
+    { id: 'app:go-forward', name: 'Navigate forward', hotkey: 'Mod+Alt+ArrowRight', run: host.goForward },
 
     { id: 'workspace:edit-file-title', name: 'Rename file', hotkey: 'F2', run: () => {
       if (!tab) return

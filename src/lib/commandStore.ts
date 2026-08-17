@@ -1,6 +1,8 @@
 const PIN_KEY = 'kyoketti.commands.pinned'
 const RECENT_KEY = 'kyoketti.commands.recent'
 
+export { isTypingField } from './wordNavigation'
+
 function readList(key: string): string[] {
   try {
     const raw = localStorage.getItem(key)
@@ -60,13 +62,6 @@ export function formatHotkey(hotkey: string): string {
       return part
     })
     .join(mac ? '' : '+')
-}
-
-export function isTypingField(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  return Boolean(target.closest('input, textarea, select'))
 }
 
 const TYPING_ALLOWED = new Set([
