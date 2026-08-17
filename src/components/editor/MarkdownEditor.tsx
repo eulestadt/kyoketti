@@ -95,7 +95,7 @@ export function MarkdownEditor() {
     return (
       <div className="editor-empty">
         <h2>No file open</h2>
-        <p>Select a note from the file explorer, open Canvas from the left ribbon, or press Ctrl/Cmd+O to quick switch. Ctrl/Cmd+P opens the command palette.</p>
+        <p>Open a note from the file explorer, or a canvas from the left ribbon.</p>
       </div>
     )
   }

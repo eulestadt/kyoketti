@@ -1,6 +1,6 @@
 import type { DriveFile, VaultNode } from '../types'
 
-const DEMO_KEY = 'kyoketti.demo.files.v5'
+const DEMO_KEY = 'kyoketti.demo.files.v6'
 
 export type DemoFile = {
   id: string
@@ -39,8 +39,6 @@ This is a local demo vault. Link Google Drive from settings when you're ready to
 - Follow a tag like #welcome
 - Switch to graph view from the left ribbon
 - Open the Canvas list from the ribbon (next to Files and Search)
-- Press Ctrl/Cmd+P for the command palette
-- Press Ctrl/Cmd+O for the quick switcher
 - Open [[Vault Overview]] for an Obsidian Bases table of your notes
 - Open [[Ideas Canvas]] for a visual Canvas board
 

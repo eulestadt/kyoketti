@@ -890,10 +890,10 @@ export function CanvasViewer({ content, onChange, embedded = false, readOnly = f
         <button type="button" className="canvas-tool" onClick={() => setCamera((c) => ({ ...c, zoom: Math.min(2.5, c.zoom * 1.1) }))}>
           <Plus size={14} />
         </button>
-        <button type="button" className="canvas-tool" title="Zoom to fit (Shift+1)" onClick={zoomToFit}>
+        <button type="button" className="canvas-tool" title="Zoom to fit" onClick={zoomToFit}>
           <Maximize2 size={14} />
         </button>
-        <button type="button" className="canvas-tool" title="Zoom to selection (Shift+2)" onClick={zoomToSelection}>
+        <button type="button" className="canvas-tool" title="Zoom to selection" onClick={zoomToSelection}>
           <Focus size={14} />
         </button>
         <button type="button" className="canvas-tool" title="Reset zoom" onClick={() => setCamera({ x: 80, y: 80, zoom: 1 })}>

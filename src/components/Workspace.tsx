@@ -438,7 +438,8 @@ export function Workspace() {
             <Network size={18} />
           </button>
           <button
-            title="Command palette (Ctrl/Cmd+P)"
+            title="Commands"
+            aria-label="Command palette"
             onClick={() => setPaletteOpen(true)}
           >
             <Terminal size={18} />
@@ -571,7 +572,7 @@ export function Workspace() {
                     </>
                   )}
                   <button
-                    title="Pure editor mode (Ctrl/Cmd+Shift+P)"
+                    title="Pure editor"
                     aria-pressed={pureMode}
                     onClick={() => togglePureMode(true)}
                   >
@@ -614,7 +615,7 @@ export function Workspace() {
         <button
           type="button"
           className="pure-exit"
-          title="Exit (Esc)"
+          title="Exit"
           aria-label="Exit"
           onClick={() => togglePureMode(false)}
         >
@@ -673,10 +674,10 @@ export function Workspace() {
             </div>
             <p className="settings-hint">
               {local
-                ? 'Local mode reads and writes a folder on this device. If that folder is in iCloud Drive, Apple syncs it. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
+                ? 'Notes stay in a folder on this device. If that folder is in iCloud Drive, Apple syncs it.'
                 : authProvider === 'github'
-                  ? 'GitHub mode stores notes as markdown in your repo. Each save creates a commit. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'
-                  : 'Sign out ends this device session. Your vault folder stays linked to your Google account for the next sign-in. Shortcuts: Ctrl/Cmd+P (commands) · Ctrl/Cmd+O · Ctrl/Cmd+N · Ctrl/Cmd+Shift+P (pure editor) · autosave'}
+                  ? 'Notes are markdown in your GitHub repo. Each save creates a commit.'
+                  : 'Sign out ends this device session. The vault folder stays linked to your Google account.'}
             </p>
           </div>
         </div>

@@ -646,28 +646,28 @@ export function WysiwygEditor() {
     <div className={`wysiwyg-editor ${toolbarVisible ? '' : 'toolbar-hidden'}`}>
       {toolbarVisible ? (
         <div className="wysiwyg-toolbar" role="toolbar" aria-label="Formatting">
-          <button type="button" title="Heading 1 (Ctrl/Cmd+Alt+1)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
+          <button type="button" title="Heading 1" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h1')}>
             <Heading1 size={15} />
           </button>
-          <button type="button" title="Heading 2 (Ctrl/Cmd+Alt+2)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
+          <button type="button" title="Heading 2" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('h2')}>
             <Heading2 size={15} />
           </button>
-          <button type="button" title="Bold (Ctrl/Cmd+B)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
+          <button type="button" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('bold')}>
             <Bold size={15} />
           </button>
-          <button type="button" title="Italic (Ctrl/Cmd+I)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
+          <button type="button" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('italic')}>
             <Italic size={15} />
           </button>
-          <button type="button" title="Strikethrough (Ctrl/Cmd+Shift+X)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
+          <button type="button" title="Strikethrough" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('strike')}>
             <Strikethrough size={15} />
           </button>
-          <button type="button" title="Bullet list (Ctrl/Cmd+Shift+8)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
+          <button type="button" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ul')}>
             <List size={15} />
           </button>
-          <button type="button" title="Numbered list (Ctrl/Cmd+Shift+7)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
+          <button type="button" title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('ol')}>
             <ListOrdered size={15} />
           </button>
-          <button type="button" title="Quote (Ctrl/Cmd+Shift+.)" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
+          <button type="button" title="Quote" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('quote')}>
             <Quote size={15} />
           </button>
           <button type="button" title="Insert table" onMouseDown={(e) => e.preventDefault()} onClick={() => handleFormat('table')}>

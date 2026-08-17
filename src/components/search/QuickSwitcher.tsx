@@ -21,7 +21,7 @@ type Props = {
 export function QuickSwitcher({
   open,
   onClose,
-  placeholder = 'Quick switcher — jump to a note',
+  placeholder = 'Jump to a note',
   items,
   emptyText = 'No matching notes',
   onChoose,

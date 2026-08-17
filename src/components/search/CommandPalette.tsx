@@ -92,7 +92,7 @@ export function CommandPalette({ open, commands, onClose }: Props) {
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Command palette — run a command"
+          placeholder="Search commands"
           aria-label="Command palette"
         />
         <ul>
