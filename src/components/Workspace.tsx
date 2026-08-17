@@ -25,10 +25,10 @@ import { CanvasList } from './sidebar/CanvasList'
 import { GlobalSearch } from './search/GlobalSearch'
 import { GraphView } from './graph/GraphView'
 import { MarkdownEditor } from './editor/MarkdownEditor'
+import { TabBar } from './tabs/TabBar'
 import { RightSidebar } from './panels/RightSidebar'
 import { QuickSwitcher } from './search/QuickSwitcher'
 import { CommandPalette } from './search/CommandPalette'
-import { displayNoteName } from '../lib/noteNames'
 import { isBaseFileName } from '../lib/bases'
 import { isCanvasFileName } from '../lib/canvas'
 import { isImageFileName } from '../lib/media'
@@ -497,31 +497,16 @@ export function Workspace() {
           <>
             {!pureMode && (
               <div className="tab-bar">
-                <div className="tabs" ref={tabsRef}>
-                  {tabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      ref={tab.id === activeFileId ? activeTabRef : undefined}
-                      className={`tab ${tab.id === activeFileId ? 'active' : ''}`}
-                      onClick={() => void openFile(tab.id)}
-                      onContextMenu={(e) => openTabMenu(e, tab)}
-                    >
-                      <span>
-                        {tab.dirty ? '• ' : ''}
-                        {displayNoteName(tab.name)}
-                      </span>
-                      <button
-                        className="tab-close"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          closeTab(tab.id)
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <TabBar
+                  tabs={tabs}
+                  activeFileId={activeFileId}
+                  tabsRef={tabsRef}
+                  activeTabRef={activeTabRef}
+                  onOpen={(id) => void openFile(id)}
+                  onClose={closeTab}
+                  onRename={(id, name) => void renameNode(id, name)}
+                  onContextMenu={openTabMenu}
+                />
                 {tabMenu && (
                   <ContextMenu
                     x={tabMenu.x}

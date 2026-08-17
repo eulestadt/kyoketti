@@ -1,6 +1,9 @@
 import { compactItems, type ContextMenuItem } from './ContextMenu'
 import { copyPath, copyWikilink } from '../../lib/clipboard'
+import { ensureBaseFileName, isBaseFileName } from '../../lib/bases'
+import { ensureCanvasFileName, isCanvasFileName } from '../../lib/canvas'
 import { displayNoteName, ensureMarkdownFileName } from '../../lib/noteNames'
+import { isImageFileName } from '../../lib/media'
 import type { VaultIndex } from '../../lib/vaultIndex'
 
 export type NoteLike = { id: string; name: string; path: string }
@@ -13,16 +16,26 @@ type NoteMenuActions = {
   index?: VaultIndex
 }
 
+/** Normalize a rename field value to a vault file name, or null if unchanged/invalid. */
+export function fileNameFromRenameInput(entered: string, previousName: string, isFolder = false): string | null {
+  const trimmed = entered.trim()
+  if (!trimmed) return null
+  if (isFolder) {
+    return trimmed !== previousName ? trimmed : null
+  }
+  let next: string
+  if (isBaseFileName(previousName)) next = ensureBaseFileName(trimmed)
+  else if (isCanvasFileName(previousName)) next = ensureCanvasFileName(trimmed)
+  else if (isImageFileName(previousName)) next = ensureMarkdownFileName(trimmed, previousName)
+  else next = ensureMarkdownFileName(trimmed, previousName)
+  return next && next !== previousName ? next : null
+}
+
 export function promptFileRename(currentName: string, isFolder = false): string | null {
   const shown = isFolder ? currentName : displayNoteName(currentName)
   const entered = window.prompt('Rename', shown)
   if (!entered?.trim()) return null
-  if (isFolder) {
-    const next = entered.trim()
-    return next && next !== currentName ? next : null
-  }
-  const next = ensureMarkdownFileName(entered, currentName)
-  return next && next !== currentName ? next : null
+  return fileNameFromRenameInput(entered, currentName, isFolder)
 }
 
 export function noteMenuItems(

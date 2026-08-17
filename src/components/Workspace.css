@@ -202,10 +202,30 @@
   white-space: nowrap;
 }
 
-.tab > span {
+.tab > span,
+.tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.tab.renaming {
+  max-width: min(280px, 50vw);
+}
+
+.tab-rename-input {
+  flex: 1 1 auto;
+  min-width: 5rem;
+  max-width: 100%;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  padding: 0.1rem 0.35rem;
+  margin: -0.1rem 0;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .tab.active {
