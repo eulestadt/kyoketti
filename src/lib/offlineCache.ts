@@ -44,6 +44,7 @@ export type MutationOp =
     }
   | { type: 'mkdir'; tempId: string; parentId: string; name: string }
   | { type: 'rename'; fileId: string; name: string }
+  | { type: 'move'; fileId: string; parentId: string; name: string }
   | { type: 'delete'; fileId: string }
 
 export type QueuedMutation = {
@@ -188,6 +189,33 @@ export function coalesceQueue(queue: QueuedMutation[], op: MutationOp): QueuedMu
     }
   }
 
+  if (op.type === 'move') {
+    const createAt = queue.findIndex((q) => q.op.type === 'create' && q.op.tempId === op.fileId)
+    if (createAt >= 0) {
+      const cur = queue[createAt]!.op
+      if (cur.type === 'create') {
+        const next = [...queue]
+        next[createAt] = { ...queue[createAt]!, op: { ...cur, parentId: op.parentId, name: op.name } }
+        return next
+      }
+    }
+    const mkdirAt = queue.findIndex((q) => q.op.type === 'mkdir' && q.op.tempId === op.fileId)
+    if (mkdirAt >= 0) {
+      const cur = queue[mkdirAt]!.op
+      if (cur.type === 'mkdir') {
+        const next = [...queue]
+        next[mkdirAt] = { ...queue[mkdirAt]!, op: { ...cur, parentId: op.parentId, name: op.name } }
+        return next
+      }
+    }
+    const moveAt = queue.findIndex((q) => q.op.type === 'move' && q.op.fileId === op.fileId)
+    if (moveAt >= 0) {
+      const next = [...queue]
+      next[moveAt] = { ...queue[moveAt]!, op }
+      return next
+    }
+  }
+
   if (op.type === 'delete') {
     const createdLocally = queue.some(
       (q) =>
@@ -199,6 +227,7 @@ export function coalesceQueue(queue: QueuedMutation[], op: MutationOp): QueuedMu
       if (q.op.type === 'mkdir' && q.op.tempId === op.fileId) return false
       if (q.op.type === 'write' && q.op.fileId === op.fileId) return false
       if (q.op.type === 'rename' && q.op.fileId === op.fileId) return false
+      if (q.op.type === 'move' && q.op.fileId === op.fileId) return false
       return true
     })
     if (createdLocally) return filtered
@@ -240,6 +269,15 @@ export function remapMutationIds(queue: QueuedMutation[], from: string, to: stri
         }
       case 'rename':
         return op.fileId === from ? { ...item, op: { ...op, fileId: to } } : item
+      case 'move':
+        return {
+          ...item,
+          op: {
+            ...op,
+            fileId: op.fileId === from ? to : op.fileId,
+            parentId: op.parentId === from ? to : op.parentId,
+          },
+        }
       case 'delete':
         return op.fileId === from ? { ...item, op: { ...op, fileId: to } } : item
     }

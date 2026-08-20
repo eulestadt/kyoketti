@@ -32,6 +32,41 @@ export function remapVaultId(root: VaultNode, from: string, to: string): VaultNo
   }
 }
 
+function rebaseVaultPaths(node: VaultNode, parentPath: string, parentId: string | undefined): VaultNode {
+  const path = parentPath ? `${parentPath}/${node.name}` : node.name
+  return {
+    ...node,
+    path,
+    parentId,
+    children: node.children?.map((child) => rebaseVaultPaths(child, path, node.id)),
+  }
+}
+
+export function moveVaultNode(root: VaultNode, id: string, newParentId: string): VaultNode {
+  let extracted: VaultNode | null = null
+  function strip(node: VaultNode): VaultNode {
+    if (!node.children) return node
+    const nextChildren: VaultNode[] = []
+    for (const child of node.children) {
+      if (child.id === id) extracted = child
+      else nextChildren.push(strip(child))
+    }
+    return { ...node, children: nextChildren }
+  }
+  const stripped = strip(root)
+  if (!extracted) return root
+  function insert(node: VaultNode): VaultNode {
+    if (node.id === newParentId) {
+      const moved = rebaseVaultPaths(extracted!, node.path, node.id)
+      const children = [...(node.children ?? []), moved].sort(folderThenName)
+      return { ...node, children }
+    }
+    if (!node.children) return node
+    return { ...node, children: node.children.map(insert) }
+  }
+  return insert(stripped)
+}
+
 export function renameVaultNode(root: VaultNode, id: string, name: string): VaultNode {
   function walk(node: VaultNode, parentPath: string, isRoot: boolean): VaultNode {
     const nextName = node.id === id ? name : node.name

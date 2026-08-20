@@ -626,12 +626,36 @@ export async function githubRename(
   fileId: string,
   newName: string,
 ): Promise<void> {
-  const { owner, repo } = parseRepoId(repoId)
   const oldPath = parsePathId(fileId, repoId)
   if (!oldPath) throw new GithubError('Cannot rename repository root', 400)
   const parent = oldPath.includes('/') ? oldPath.slice(0, oldPath.lastIndexOf('/')) : ''
   const newPath = parent ? `${parent}/${newName}` : newName
+  await githubRelocate(accessToken, repoId, oldPath, newPath)
+}
+
+export async function githubMove(
+  accessToken: string,
+  repoId: string,
+  fileId: string,
+  newParentId: string,
+  nextName?: string,
+): Promise<void> {
+  const oldPath = parsePathId(fileId, repoId)
+  if (!oldPath) throw new GithubError('Cannot move repository root', 400)
+  const name = nextName || oldPath.split('/').pop() || oldPath
+  const parentPath = parsePathId(newParentId, repoId)
+  const newPath = parentPath ? `${parentPath}/${name}` : name
+  await githubRelocate(accessToken, repoId, oldPath, newPath)
+}
+
+async function githubRelocate(
+  accessToken: string,
+  repoId: string,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
   if (newPath === oldPath) return
+  const { owner, repo } = parseRepoId(repoId)
 
   return withRepoWrite(repoId, async () => {
     const branch = await getDefaultBranch(accessToken, repoId)
@@ -645,13 +669,13 @@ export async function githubRename(
       for (const child of children) {
         const childPath = parsePathId(child.id, repoId)
         const nextChildPath = `${newPath}/${childPath.slice(prefix.length)}`
-        const text = await githubRead(accessToken, repoId, child.id)
+        const content = await readGithubRelocateContent(accessToken, repoId, child.id, childPath)
         await putGithubFile(
           accessToken,
           repoId,
           nextChildPath,
-          text,
-          `chore: rename ${childPath} → ${nextChildPath}`,
+          content,
+          `chore: move ${childPath} → ${nextChildPath}`,
           undefined,
           branch,
         )
@@ -662,21 +686,35 @@ export async function githubRename(
       return
     }
 
-    const content =
-      meta.content && meta.encoding === 'base64'
-        ? fromBase64(meta.content)
-        : await githubRead(accessToken, repoId, fileId)
+    const fileId = pathId(repoId, oldPath)
+    const content = await readGithubRelocateContent(accessToken, repoId, fileId, oldPath, meta)
     await putGithubFile(
       accessToken,
       repoId,
       newPath,
       content,
-      `chore: rename ${oldPath} → ${newPath}`,
+      `chore: move ${oldPath} → ${newPath}`,
       undefined,
       branch,
     )
     await deleteFileAtPath(accessToken, repoId, oldPath, branch)
   })
+}
+
+async function readGithubRelocateContent(
+  accessToken: string,
+  repoId: string,
+  fileId: string,
+  path: string,
+  meta?: { content?: string; encoding?: string } | null,
+): Promise<string | Uint8Array> {
+  const name = path.split('/').pop() ?? path
+  if (isImageFileName(name)) {
+    const blob = await githubReadBlob(accessToken, repoId, fileId)
+    return new Uint8Array(await blob.arrayBuffer())
+  }
+  if (meta?.content && meta.encoding === 'base64') return fromBase64(meta.content)
+  return githubRead(accessToken, repoId, fileId)
 }
 
 export async function githubDelete(

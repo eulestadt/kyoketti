@@ -23,6 +23,7 @@ import {
   renameFile,
   trashFile,
   updateTextFile,
+  moveFile,
 } from '../lib/googleDrive'
 import {
   clearVaultServer,
@@ -42,6 +43,7 @@ import {
   githubRead,
   githubReadBlob,
   githubRename,
+  githubMove,
   githubWrite,
   listGithubVaultTree,
   pathId as githubPathId,
@@ -54,6 +56,7 @@ import {
   demoRead,
   demoReadBlob,
   demoRename,
+  demoMove,
   demoTrash,
   demoWrite,
   disableDemoMode,
@@ -72,6 +75,7 @@ import {
   localRead,
   localReadBlob,
   localRename,
+  localMove,
   localTrash,
   localWrite,
   pickLocalVaultFolder,
@@ -101,8 +105,8 @@ import {
 } from '../lib/noteNames'
 import { defaultBaseContent, ensureBaseFileName, isBaseFileName } from '../lib/bases'
 import { defaultCanvasContent, ensureCanvasFileName, isCanvasFileName } from '../lib/canvas'
-import { childNames, findVaultNode, uniqueAvailableName, uniqueCopyName } from '../lib/vaultTree'
-import { insertVaultChild, remapVaultId, removeVaultNode, renameVaultNode } from '../lib/vaultMutate'
+import { childNames, findVaultNode, isInsideVaultNode, uniqueAvailableName, uniqueCopyName } from '../lib/vaultTree'
+import { insertVaultChild, moveVaultNode, remapVaultId, removeVaultNode, renameVaultNode } from '../lib/vaultMutate'
 import {
   attachmentFileName,
   blobToDataUrl,
@@ -220,6 +224,7 @@ type AppActions = {
   createDirectory: (parentId: string, name: string) => Promise<void>
   duplicateFile: (fileId: string) => Promise<void>
   renameNode: (id: string, name: string) => Promise<void>
+  moveNode: (id: string, destFolderId: string) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   writeFileContent: (fileId: string, content: string) => Promise<void>
   readFileBlob: (fileId: string) => Promise<Blob>
@@ -1700,6 +1705,110 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
   renameNodeRef.current = renameNode
 
+  const moveNode = useCallback(
+    async (id: string, destFolderId: string) => {
+      const node = findVaultNode(treeRef.current, id)
+      const dest = findVaultNode(treeRef.current, destFolderId)
+      if (!node || !dest?.isFolder) return
+      if (node.id === destFolderId) return
+      if (node.id === vaultRef.current?.folderId) return
+      if (isInsideVaultNode(treeRef.current, id, destFolderId)) return
+      const currentParent = node.parentId ?? vaultRef.current?.folderId
+      if (!currentParent) return
+      const destNames = childNames(dest).filter((name) => {
+        if (currentParent === destFolderId && name.toLowerCase() === node.name.toLowerCase()) return false
+        return true
+      })
+      const nextName = uniqueAvailableName(node.name, destNames)
+      if (currentParent === destFolderId && nextName === node.name) return
+
+      const existing = indexRef.current.notesById.get(id)
+      const oldRef = existing
+        ? { title: existing.title, path: existing.path, name: existing.name }
+        : { title: noteTitleFromFileName(node.name), path: node.path, name: node.name }
+      const vaultId = vaultRef.current?.folderId ?? destFolderId
+      const nextPath = pathForNewChild(treeRef.current, vaultId, destFolderId, nextName)
+      const newRef = {
+        title: noteTitleFromFileName(nextName),
+        path: nextPath,
+        name: nextName,
+      }
+
+      try {
+        if (demoRef.current) {
+          demoMove(id, destFolderId)
+          if (nextName !== node.name) demoRename(id, nextName)
+        } else if (localRef.current) {
+          await localMove(id, destFolderId, nextName)
+        } else if (sessionRef.current?.provider === 'github') {
+          await githubMove(await ensureDriveToken(), vaultId, id, destFolderId, nextName)
+        } else {
+          const token = await ensureDriveToken()
+          if (currentParent !== destFolderId) await moveFile(token, id, destFolderId, currentParent)
+          if (nextName !== node.name) await renameFile(token, id, nextName)
+        }
+      } catch (err) {
+        if (!shouldQueueOffline(err)) throw err
+        await queueOp({ type: 'move', fileId: id, parentId: destFolderId, name: nextName })
+      }
+
+      if (oldRef.path !== newRef.path || oldRef.name !== newRef.name) {
+        for (const note of indexRef.current.notesById.values()) {
+          if (note.id === id) continue
+          const nextContent = rewriteLinksForRename(note.content, oldRef, newRef)
+          if (nextContent === note.content) continue
+          try {
+            await writeFileContent(note.id, nextContent)
+          } catch {
+            /* best-effort link updates */
+          }
+        }
+      }
+
+      if (treeRef.current) {
+        let nextTree = moveVaultNode(treeRef.current, id, destFolderId)
+        if (nextName !== node.name) nextTree = renameVaultNode(nextTree, id, nextName)
+        treeRef.current = nextTree
+        setTree(nextTree)
+      }
+
+      let liveId = id
+      if ((sessionRef.current?.provider === 'github' || localRef.current) && vaultRef.current) {
+        const nextId = localRef.current
+          ? ensureLocalPathId(nextPath)
+          : githubPathId(vaultRef.current.folderId, nextPath)
+        if (nextId !== id) {
+          remapLocalId(id, nextId)
+          liveId = nextId
+        }
+      }
+
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== liveId && t.id !== id) return t
+          return { ...t, id: liveId, name: nextName, path: nextPath }
+        }),
+      )
+      setIndex((prev) => {
+        const current = prev.notesById.get(liveId) ?? prev.notesById.get(id)
+        if (!current) return prev
+        return upsertNote(removeNote(prev, id), {
+          ...current,
+          id: liveId,
+          name: nextName,
+          title: newRef.title,
+          path: nextPath,
+        })
+      })
+      if (activeFileIdRef.current === id && liveId !== id) {
+        setActiveFileId(liveId)
+      }
+      schedulePersist()
+      if (!offlineRef.current) await refreshVault()
+    },
+    [refreshVault, ensureDriveToken, writeFileContent, queueOp, remapLocalId, schedulePersist],
+  )
+
   useEffect(() => {
     if (!activeFileId) return
     const name =
@@ -1815,6 +1924,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (localRef.current) await localRename(op.fileId, op.name)
           else if (github) await githubRename(accessToken, vaultId, op.fileId, op.name)
           else await renameFile(accessToken, op.fileId, op.name)
+        } else if (op.type === 'move') {
+          if (localRef.current) await localMove(op.fileId, op.parentId, op.name)
+          else if (github) await githubMove(accessToken, vaultId, op.fileId, op.parentId, op.name)
+          else {
+            const current = findVaultNode(treeRef.current, op.fileId)
+            const fromParent = current?.parentId ?? vaultId
+            if (fromParent !== op.parentId) await moveFile(accessToken, op.fileId, op.parentId, fromParent)
+            if (op.name && current && op.name !== current.name) await renameFile(accessToken, op.fileId, op.name)
+          }
         } else if (op.type === 'delete') {
           if (localRef.current) await localTrash(op.fileId)
           else if (github) await githubDelete(accessToken, vaultId, op.fileId)
@@ -1951,6 +2069,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createDirectory,
       duplicateFile,
       renameNode,
+      moveNode,
       deleteNode,
       writeFileContent,
       readFileBlob,
@@ -2022,6 +2141,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createDirectory,
       duplicateFile,
       renameNode,
+      moveNode,
       deleteNode,
       writeFileContent,
       readFileBlob,

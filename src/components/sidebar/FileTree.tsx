@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ancestorIds, collectFolderIds } from '../../lib/vaultTree'
+import { useEffect, useState, type DragEvent } from 'react'
+import { ancestorIds, collectFolderIds, findVaultNode } from '../../lib/vaultTree'
 import {
   FilePlus,
   FolderPlus,
@@ -22,6 +22,8 @@ import { compactItems, ContextMenu, useContextMenu, type ContextMenuItem } from 
 import { noteMenuItems, promptFileRename } from '../ui/noteMenu'
 import './FileTree.css'
 
+const VAULT_DND = 'application/x-kyoketti-node'
+
 type MenuTarget =
   | { kind: 'file'; node: VaultNode }
   | { kind: 'folder'; node: VaultNode }
@@ -37,6 +39,7 @@ export function FileTree() {
     createCanvas,
     createDirectory,
     renameNode,
+    moveNode,
     deleteNode,
     duplicateFile,
     loadingVault,
@@ -45,6 +48,8 @@ export function FileTree() {
     treeExpandRequest,
   } = useApp()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
   const { menu, open, close } = useContextMenu<MenuTarget>()
 
   useEffect(() => {
@@ -126,6 +131,49 @@ export function FileTree() {
     await deleteNode(node.id)
   }
 
+  function vaultDragId(event: DragEvent<HTMLElement>): string {
+    return event.dataTransfer.getData(VAULT_DND) || dragId || ''
+  }
+
+  function canDropOnFolder(sourceId: string, folderId: string): boolean {
+    if (!sourceId || sourceId === folderId || !tree) return false
+    const source = findVaultNode(tree, sourceId)
+    if (!source) return false
+    if (source.parentId === folderId) return false
+    if (source.isFolder && (findVaultNode(source, folderId) || folderId === source.id)) return false
+    return true
+  }
+
+  function onFolderDragOver(event: DragEvent<HTMLElement>, folderId: string) {
+    const types = [...event.dataTransfer.types]
+    if (!dragId && !types.includes(VAULT_DND)) return
+    const sourceId = dragId || ''
+    if (sourceId && !canDropOnFolder(sourceId, folderId)) {
+      event.dataTransfer.dropEffect = 'none'
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'move'
+    setDropTargetId(folderId)
+    setExpanded((prev) => {
+      if (prev.has(folderId)) return prev
+      const next = new Set(prev)
+      next.add(folderId)
+      return next
+    })
+  }
+
+  async function onFolderDrop(event: DragEvent<HTMLElement>, folderId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const sourceId = vaultDragId(event)
+    setDropTargetId(null)
+    setDragId(null)
+    if (!sourceId || !canDropOnFolder(sourceId, folderId)) return
+    await moveNode(sourceId, folderId)
+  }
+
   function folderItems(node: VaultNode): ContextMenuItem[] {
     const isRoot = node.id === vault?.folderId
     return compactItems([
@@ -156,12 +204,34 @@ export function FileTree() {
     const isActive = activeFileId === node.id
 
     if (node.isFolder) {
+      const isDropTarget = dropTargetId === node.id
       return (
         <div key={node.id} className="tree-node">
           <div
-            className={`tree-row folder ${isActive ? 'active' : ''}`}
+            className={`tree-row folder ${isActive ? 'active' : ''} ${isDropTarget ? 'drop-target' : ''} ${dragId === node.id ? 'is-dragging' : ''}`}
             data-file-id={node.id}
             style={{ paddingLeft: 8 + depth * 12 }}
+            draggable={node.id !== vault?.folderId}
+            onDragStart={(e) => {
+              if ((e.target as HTMLElement).closest('.tree-actions')) {
+                e.preventDefault()
+                return
+              }
+              e.dataTransfer.setData(VAULT_DND, node.id)
+              e.dataTransfer.effectAllowed = 'move'
+              setDragId(node.id)
+            }}
+            onDragEnd={() => {
+              setDragId(null)
+              setDropTargetId(null)
+            }}
+            onDragOver={(e) => onFolderDragOver(e, node.id)}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDropTargetId((cur) => (cur === node.id ? null : cur))
+              }
+            }}
+            onDrop={(e) => void onFolderDrop(e, node.id)}
             onContextMenu={(e) => open(e, { kind: 'folder', node })}
           >
             <button className="tree-main" onClick={() => toggle(node.id)}>
@@ -206,9 +276,31 @@ export function FileTree() {
     return (
       <div key={node.id} className="tree-node">
         <div
-          className={`tree-row file ${isActive ? 'active' : ''}`}
+          className={`tree-row file ${isActive ? 'active' : ''} ${dragId === node.id ? 'is-dragging' : ''}`}
           data-file-id={node.id}
           style={{ paddingLeft: 8 + depth * 12 }}
+          draggable
+          onDragStart={(e) => {
+            if ((e.target as HTMLElement).closest('.tree-actions')) {
+              e.preventDefault()
+              return
+            }
+            e.dataTransfer.setData(VAULT_DND, node.id)
+            e.dataTransfer.effectAllowed = 'move'
+            setDragId(node.id)
+          }}
+          onDragEnd={() => {
+            setDragId(null)
+            setDropTargetId(null)
+          }}
+          onDragOver={(e) => {
+            const parentId = node.parentId ?? vault?.folderId
+            if (parentId) onFolderDragOver(e, parentId)
+          }}
+          onDrop={(e) => {
+            const parentId = node.parentId ?? vault?.folderId
+            if (parentId) void onFolderDrop(e, parentId)
+          }}
           onContextMenu={(e) => open(e, { kind: 'file', node })}
         >
           <button className="tree-main" onClick={() => void openFile(node.id)}>
@@ -229,6 +321,12 @@ export function FileTree() {
   return (
     <div
       className="file-tree"
+      onDragOver={(e) => {
+        if (tree) onFolderDragOver(e, tree.id)
+      }}
+      onDrop={(e) => {
+        if (tree) void onFolderDrop(e, tree.id)
+      }}
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest('.tree-row')) return
         open(e, { kind: 'folder', node: tree })

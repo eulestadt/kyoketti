@@ -359,6 +359,10 @@ export function demoRename(id: string, name: string) {
   saveFiles(loadFiles().map((f) => (f.id === id ? { ...f, name } : f)))
 }
 
+export function demoMove(id: string, parentId: string) {
+  saveFiles(loadFiles().map((f) => (f.id === id ? { ...f, parentId } : f)))
+}
+
 export function demoTrash(id: string) {
   const files = loadFiles()
   const remove = new Set<string>([id])

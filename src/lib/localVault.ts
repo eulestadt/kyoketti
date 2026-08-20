@@ -485,6 +485,67 @@ export async function localRename(id: string, name: string): Promise<void> {
   }
 }
 
+export async function localMove(id: string, newParentId: string, nextName?: string): Promise<void> {
+  const relPath = pathOf(id)
+  if (!relPath) throw new Error('Cannot move vault root')
+  const destParentPath = pathOf(newParentId)
+  if (destParentPath === relPath || destParentPath.startsWith(`${relPath}/`)) {
+    throw new Error('Cannot move a folder into itself')
+  }
+  const { parent, name: oldName } = await resolveParent(relPath)
+  const destName = nextName || oldName
+  const destDir = await resolveDirectory(destParentPath)
+  const nextPath = destParentPath ? `${destParentPath}/${destName}` : destName
+  if (nextPath === relPath) return
+
+  function remapMoved(oldPrefix: string, newPrefix: string) {
+    for (const [entryId, path] of [...idToPath.entries()]) {
+      if (path === oldPrefix || path.startsWith(`${oldPrefix}/`)) {
+        const updated = newPrefix + path.slice(oldPrefix.length)
+        idToPath.set(entryId, updated)
+        pathToId.delete(path)
+        pathToId.set(updated, entryId)
+      }
+    }
+  }
+
+  try {
+    const fileHandle = await parent.getFileHandle(oldName)
+    // @ts-expect-error move() is available in Chromium File System Access
+    if (typeof fileHandle.move === 'function') {
+      // @ts-expect-error Chromium FileSystemFileHandle.move
+      await fileHandle.move(destDir, destName)
+      remapMoved(relPath, nextPath)
+      return
+    }
+    const file = await fileHandle.getFile()
+    const next = await destDir.getFileHandle(destName, { create: true })
+    const writable = await next.createWritable()
+    await writable.write(await file.arrayBuffer())
+    await writable.close()
+    await parent.removeEntry(oldName)
+    remapMoved(relPath, nextPath)
+    return
+  } catch {
+    /* maybe directory */
+  }
+
+  try {
+    const dirHandle = await parent.getDirectoryHandle(oldName)
+    // @ts-expect-error move() is available in Chromium File System Access
+    if (typeof dirHandle.move === 'function') {
+      // @ts-expect-error Chromium FileSystemDirectoryHandle.move
+      await dirHandle.move(destDir, destName)
+      remapMoved(relPath, nextPath)
+      return
+    }
+  } catch {
+    /* fall through */
+  }
+
+  throw new Error('Move is not supported for this folder in your browser')
+}
+
 export async function localTrash(id: string): Promise<void> {
   const relPath = pathOf(id)
   if (!relPath) throw new Error('Cannot delete vault root')

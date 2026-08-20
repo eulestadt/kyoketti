@@ -197,9 +197,8 @@ export function renderMarkdownToHtml(
         .filter(Boolean)
       return `<blockquote>${lines.map((line) => `<p>${line}</p>`).join('')}</blockquote>\n`
     })
-    // Unordered lists: -, *, or + (CommonMark)
-    .replace(/^\s*[-*+]\s+(.+)$/gm, '<li>$1</li>')
-    .replace(/^\s*\d+\.\s+(.+)$/gm, '<li class="ordered">$1</li>')
+  text = convertMarkdownLists(text)
+  text = text
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/~~([^~]+)~~/g, '<del>$1</del>')
@@ -210,13 +209,6 @@ export function renderMarkdownToHtml(
     })
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
     .replace(/^-{3,}$/gm, '<hr />')
-
-  text = text.replace(/(?:<li>.*?<\/li>\n?)+/gs, (block) => {
-    if (block.includes('class="ordered"')) {
-      return `<ol>${block.replace(/ class="ordered"/g, '')}</ol>`
-    }
-    return `<ul>${block}</ul>`
-  })
 
   text = text
     .split(/\n{2,}/)
@@ -243,6 +235,110 @@ export function renderMarkdownToHtml(
   })
 
   return text
+}
+
+const UNORDERED_ITEM = /^\s*[-*+]\s+(.*)$/
+const ORDERED_ITEM = /^\s*\d+\.\s+(.*)$/
+
+/**
+ * Keep consecutive markdown list items in a single <ul>/<ol>.
+ * Blank lines between items make a CommonMark "loose" list (extra spacing);
+ * items on adjacent lines stay tight. Splitting each item into its own list
+ * was causing huge gaps that came back after save.
+ */
+export function convertMarkdownLists(text: string): string {
+  const lines = text.split('\n')
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]!
+    const unordered = UNORDERED_ITEM.test(line)
+    const ordered = ORDERED_ITEM.test(line)
+    if (!unordered && !ordered) {
+      out.push(line)
+      i += 1
+      continue
+    }
+    const isOrdered = ordered && !unordered
+    const itemRe = isOrdered ? ORDERED_ITEM : UNORDERED_ITEM
+    const items: string[] = []
+    let loose = false
+    while (i < lines.length) {
+      const match = itemRe.exec(lines[i]!)
+      if (!match) break
+      items.push(match[1] ?? '')
+      i += 1
+      let blanks = 0
+      while (i < lines.length && lines[i]!.trim() === '') {
+        blanks += 1
+        i += 1
+      }
+      if (blanks > 0) {
+        const nextIsItem = i < lines.length && itemRe.test(lines[i]!)
+        if (nextIsItem) loose = true
+        else {
+          i -= blanks
+          break
+        }
+      }
+    }
+    const tag = isOrdered ? 'ol' : 'ul'
+    const attr = loose ? ' data-loose="true"' : ''
+    const lis = items
+      .map((item) => (loose ? `<li><p>${item}</p></li>` : `<li>${item}</li>`))
+      .join('')
+    out.push(`<${tag}${attr}>${lis}</${tag}>`)
+  }
+  return out.join('\n')
+}
+
+function isEmptyHtmlBlock(el: Element): boolean {
+  if (el.tagName !== 'P' && el.tagName !== 'DIV') return false
+  return !el.textContent?.replace(/\u00a0/g, ' ').trim()
+}
+
+/** Merge sibling lists of the same type so WYSIWYG save does not reinsert blank lines. */
+function mergeAdjacentLists(root: Element): void {
+  const kids = [...root.children]
+  for (let i = 0; i < kids.length; i++) {
+    const a = kids[i]!
+    if (a.tagName !== 'UL' && a.tagName !== 'OL') continue
+    let j = i + 1
+    while (j < kids.length && isEmptyHtmlBlock(kids[j]!)) j += 1
+    const b = kids[j]
+    if (!b || b.tagName !== a.tagName) continue
+    if (a.getAttribute('data-loose') || b.getAttribute('data-loose')) {
+      a.setAttribute('data-loose', 'true')
+    }
+    while (b.firstChild) a.appendChild(b.firstChild)
+    for (let k = i + 1; k <= j; k++) kids[k]?.remove()
+    mergeAdjacentLists(root)
+    return
+  }
+  for (const child of [...root.children]) mergeAdjacentLists(child)
+}
+
+function unwrapTightListParagraphs(root: Element): void {
+  for (const list of [...root.querySelectorAll('ul, ol')]) {
+    if (list.getAttribute('data-loose') === 'true') continue
+    for (const li of [...list.children]) {
+      if (li.tagName !== 'LI') continue
+      const blocks = [...li.children].filter((c) => c.tagName === 'P')
+      if (blocks.length !== 1 || li.children.length !== 1) continue
+      const p = blocks[0]!
+      while (p.firstChild) li.insertBefore(p.firstChild, p)
+      p.remove()
+    }
+  }
+}
+
+function normalizeListHtml(html: string): string {
+  if (typeof document === 'undefined') return html
+  const wrap = document.createElement('div')
+  wrap.innerHTML = html
+  mergeAdjacentLists(wrap)
+  unwrapTightListParagraphs(wrap)
+  return wrap.innerHTML
 }
 
 function createTurndown(): TurndownService {
@@ -331,6 +427,22 @@ function createTurndown(): TurndownService {
     },
   })
 
+  td.addRule('looseListItem', {
+    filter: (node) => {
+      if (node.nodeName !== 'LI') return false
+      const parent = node.parentNode as HTMLElement | null
+      return parent?.getAttribute?.('data-loose') === 'true'
+    },
+    replacement: (content, node) => {
+      const parent = node.parentNode as HTMLElement
+      const index = [...parent.children].filter((c) => c.nodeName === 'LI').indexOf(node as HTMLElement)
+      const prefix = parent.nodeName === 'OL' ? `${index + 1}. ` : '- '
+      const body = content.replace(/^\n+/, '').replace(/\n+$/, '')
+      const suffix = node.nextSibling ? '\n\n' : '\n'
+      return `${prefix}${body}${suffix}`
+    },
+  })
+
   return td
 }
 
@@ -340,7 +452,7 @@ const turndown = typeof document !== 'undefined' ? createTurndown() : null
 export function htmlToMarkdown(html: string): string {
   const service = turndown ?? createTurndown()
   return service
-    .turndown(html)
+    .turndown(normalizeListHtml(html))
     .replace(/\u00a0/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

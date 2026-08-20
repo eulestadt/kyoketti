@@ -38,6 +38,15 @@ export function ancestorIds(root: VaultNode | null | undefined, id: string): str
   return walk(root, []) ?? []
 }
 
+export function isInsideVaultNode(
+  root: VaultNode | null | undefined,
+  ancestorId: string,
+  nodeId: string,
+): boolean {
+  if (!root || ancestorId === nodeId) return true
+  return ancestorIds(root, nodeId).includes(ancestorId)
+}
+
 export function uniqueAvailableName(name: string, existing: string[]): string {
   const taken = new Set(existing.map((n) => n.toLowerCase()))
   if (!taken.has(name.toLowerCase())) return name

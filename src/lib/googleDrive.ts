@@ -236,6 +236,24 @@ export async function renameFile(
   )
 }
 
+export async function moveFile(
+  accessToken: string,
+  fileId: string,
+  newParentId: string,
+  previousParentId: string,
+): Promise<DriveFile> {
+  const params = new URLSearchParams({
+    addParents: newParentId,
+    removeParents: previousParentId,
+    supportsAllDrives: 'true',
+    fields: 'id,name,mimeType,parents,modifiedTime,size',
+  })
+  return driveFetch<DriveFile>(accessToken, `/files/${fileId}?${params}`, {
+    method: 'PATCH',
+    body: JSON.stringify({}),
+  })
+}
+
 export async function trashFile(accessToken: string, fileId: string): Promise<void> {
   await driveFetch(accessToken, `/files/${fileId}?supportsAllDrives=true`, {
     method: 'PATCH',
