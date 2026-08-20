@@ -1,0 +1,84 @@
+.canvas-list {
+  height: 100%;
+  overflow: auto;
+  padding: 0.5rem 0.4rem 1rem;
+  font-size: 0.86rem;
+}
+
+.canvas-list.empty,
+.canvas-list-empty {
+  color: var(--text-faint);
+  padding: 0.85rem 0.6rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.canvas-list-empty code {
+  font-size: 0.8em;
+}
+
+.canvas-list-toolbar {
+  padding: 0.15rem 0.35rem 0.55rem;
+}
+
+.canvas-list-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.canvas-list-toolbar button:hover {
+  background: var(--bg-hover);
+}
+
+.canvas-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.45rem 0.5rem;
+  cursor: pointer;
+}
+
+.canvas-list-row:hover,
+.canvas-list-row.active {
+  background: var(--bg-hover);
+}
+
+.canvas-list-row span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.canvas-list-row strong {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-list-row em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

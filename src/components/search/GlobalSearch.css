@@ -1,0 +1,52 @@
+.global-search {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem;
+  gap: 0.55rem;
+}
+
+.global-search input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+}
+
+.global-search ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+
+.global-search button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.55rem 0.45rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.global-search button:hover {
+  background: var(--bg-hover);
+}
+
+.global-search span {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.global-search p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}

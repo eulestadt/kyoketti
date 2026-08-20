@@ -1,0 +1,50 @@
+.graph-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-graph);
+}
+
+.graph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.graph-toolbar strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.graph-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.graph-toolbar button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.graph-toolbar button.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.graph-view canvas {
+  flex: 1;
+  width: 100%;
+  cursor: pointer;
+}

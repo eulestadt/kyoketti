@@ -1,0 +1,18 @@
+{
+  "name": "Kyoketti",
+  "short_name": "Kyoketti",
+  "description": "Markdown notes backed by Google Drive, GitHub, or a local folder",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f5",
+  "theme_color": "#5a8f6a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
